@@ -46,16 +46,19 @@
 | Property | Value |
 |----------|-------|
 | **Tailscale IP** | 100.76.168.116 |
-| **Role** | Media Services |
+| **Role** | Media + Compute |
 | **RAM** | 96GB |
+| **CPU** | i5-10400 (6C/12T) |
+| **GPU** | Intel QuickSync |
 | **Availability** | Usually On |
 
 ### Services
 
-- Plex (32400)
+- Plex (32400) + QuickSync transcoding
 - Radarr (7878)
 - Sonarr (8989)
 - Tautulli (8181)
+- *Potential*: Ollama, Heavy MCPs
 
 ---
 
