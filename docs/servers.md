@@ -63,13 +63,23 @@
 | **CPU** | i5-10400 (6C/12T) |
 | **GPU** | Intel QuickSync |
 | **Availability** | Usually On |
+| **Network** | 350Mbps symmetric |
+
+### Unraid-Specific Constraints
+
+> [!WARNING]
+> Unraid is RAM-based - config persists differently!
+
+- **Persistence**: USB flash for persistent configs
+- **Boot Script**: `go` file must create `/atn` namespace
+- **Core Networking**: Static binaries (Caddy, cloudflared) on USB → tmpfs
+- **Tailscale**: Already installed as plugin ✓
+- **Permissions**: Different ownership model than Linux
 
 ### Services
 
 - Plex (32400) + QuickSync transcoding
-- Radarr (7878)
-- Sonarr (8989)
-- Tautulli (8181)
+- Radarr (7878), Sonarr (8989), Tautulli (8181)
 - *Potential*: Ollama, Heavy MCPs
 
 ---
