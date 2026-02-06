@@ -1,0 +1,80 @@
+{
+	# Global Options
+	email anguy079@gmail.com
+	acme_dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+}
+
+logarr.atnplex.com {
+	# API to backend
+	handle /api/* {
+		reverse_proxy logarr-backend:4000
+	}
+
+	# Everything else to frontend
+	handle {
+		reverse_proxy logarr-frontend:3000
+	}
+}
+
+# The "One Ring" Rule: Handle everything under atnplex.com
+*.atnplex.com, atnplex.com {
+	# 1. WILDCARD CERTIFICATE
+	# This tells Caddy to get ONE cert for "*.atnplex.com"
+	tls {
+		dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+		resolvers 1.1.1.1
+	}
+
+	# 2. LOGGING (Structured JSON)
+	# We log everything to stdout so Docker can capture it.
+	# You can filter this later by the "host" field.
+	log {
+		output stdout
+		format json
+	}
+
+	# 3. ROOT DOMAIN REDIRECT
+	# If user hits "atnplex.com", send to "www"
+	@root host atnplex.com
+	handle @root {
+		redir https://www.atnplex.com{uri} permanent
+	}
+
+	# 4. MAP ROUTING (The Magic)
+	map {host} {upstream} {
+		# VPS Local Containers (Docker Network: atn_link)
+		www.atnplex.com organizr:80
+		organizr.atnplex.com organizr:80
+		pihole-vps.atnplex.com 10.0.0.237:82
+		jellyseerr.atnplex.com jellyseerr:5055 # <-- Use this line AFTER you migrate Jellyseerr to VPS
+		suggestarr.atnplex.com suggestarr:5000
+		uptime.atnplex.com uptime-kuma:3001
+		# Unraid Remote Containers (Tailscale IP: 100.76.168.116)
+		tautulli.atnplex.com 100.76.168.116:8181
+
+		# PRO TIP: If you haven't moved Jellyseerr yet, you can proxy it securely right now:
+		# jellyseerr.atnplex.com  100.76.168.116:5055  # <-- Use this line to proxy Jellyseerr on UNRAID 
+	}
+
+	# 5. REVERSE PROXY + HEALTH CHECKS
+	# Send traffic to the {upstream} defined in the map above.
+	reverse_proxy {upstream} {
+		# Passive Health Checks: If it fails 3 times, stop sending traffic for 30s
+		fail_duration 30s
+		max_fails 3
+	}
+}
+
+# ---------------------------------------------------------
+# OVERRIDE BLOCK FOR PI-HOLE
+# ---------------------------------------------------------
+# This block takes priority over the wildcard block above.
+# It forces "/" → "/admin/login.php" ONLY for Pi-hole.
+pihole-vps.atnplex.com {
+	@root path /
+	rewrite @root /admin/login.php
+
+	reverse_proxy 10.0.0.237:82 {
+		header_up Host {host}
+	}
+}
