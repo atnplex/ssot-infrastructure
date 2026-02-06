@@ -7,7 +7,8 @@
 | Range | Usage |
 |-------|-------|
 | 443, 80 | Caddy only (reverse proxy) |
-| 9000-9099 | Core services |
+| 9000-9019 | Core services |
+| 9020-9030 | **RESERVED: Labs MCP** (Unraid only) |
 | 9100-9199 | Monitoring |
 | 9700-9799 | Library tools |
 | 32400 | Plex (standard) |

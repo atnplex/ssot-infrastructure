@@ -1,0 +1,50 @@
+# Unraid Docker Compose
+# Location: /boot/config/plugins/compose.manager/projects/labs-mcp/docker-compose.yml
+
+version: "3.8"
+
+volumes:
+  labs_session_data:
+    name: labs_session_data
+    # Pre-allocated for future Labs MCP session persistence
+
+services:
+  # ============================================================
+  # PLACEHOLDER: Google Labs MCP (Phase 3-4)
+  # ============================================================
+  #
+  # Purpose: Headless browser management for Google Labs services
+  # - Stitch
+  # - ImageFX
+  # - Jules
+  #
+  # Requirements:
+  # - High RAM (8-16GB for browser instances)
+  # - Session cookie rotation
+  # - Unraid ONLY (not VPS due to resource constraints)
+  #
+  # Ports Reserved: 9020-9030
+  #
+  # labs-mcp:
+  #   image: ghcr.io/atnplex/labs-mcp:latest
+  #   container_name: labs-mcp
+  #   restart: unless-stopped
+  #   ports:
+  #     - "9020:9020"
+  #     - "9021:9021"  # Health/metrics
+  #   volumes:
+  #     - labs_session_data:/app/sessions
+  #   environment:
+  #     - TZ=America/Los_Angeles
+  #   networks:
+  #     - atn_link
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         memory: 16G
+  #       reservations:
+  #         memory: 8G
+
+networks:
+  atn_link:
+    external: true
