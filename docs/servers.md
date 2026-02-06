@@ -1,14 +1,26 @@
 # Server Inventory
 
+## Resource Limitations
+
+| Server | Limitation |
+|--------|------------|
+| VPS1/VPS2 | OCI Free Tier - limited storage & egress |
+| Unraid | Remote location, 350Mbps symmetric |
+| Windows | Transient (dev sessions only) |
+
+---
+
 ## VPS1 (OCI - Primary Brain)
 
 | Property | Value |
 |----------|-------|
 | **Tailscale IP** | 100.67.88.109 |
 | **Role** | Primary Brain (Always On) |
+| **Tier** | OCI Free Tier |
 | **RAM** | 24GB |
 | **CPU** | 4 cores |
 | **Disk** | 52GB free |
+| **Limit** | Egress/Storage |
 
 ### Running Services
 
