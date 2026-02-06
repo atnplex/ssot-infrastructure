@@ -89,17 +89,34 @@
 }
 
 # === UNRAID SERVICES (Direct - Media) ===
-plex.atnplex.com     { import unraid 32400 }
-sonarr.atnplex.com   { import unraid 8989 }
-radarr.atnplex.com   { import unraid 7878 }
-tautulli.atnplex.com { import unraid 8181 }
+plex.atnplex.com {
+	import unraid 32400
+}
+
+sonarr.atnplex.com {
+	import unraid 8989
+}
+
+radarr.atnplex.com {
+	import unraid 7878
+}
+
+tautulli.atnplex.com {
+	import unraid 8181
+}
 
 # === HA SERVICES ===
-organizr.atnplex.com { import ha_vps2_vps1 8080 }
-ag.atnplex.com       { import vps2 8045 }
+organizr.atnplex.com {
+	import ha_vps2_vps1 8080
+}
+
+ag.atnplex.com {
+	import vps2 8045
+}
 
 # === CATCH-ALL ===
 *.atnplex.com {
 	import common
 	reverse_proxy localhost:8080
 }
+
