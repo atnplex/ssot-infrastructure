@@ -1,72 +1,85 @@
 # Server Inventory
 
-## VPS1
+## VPS1 (OCI - Primary Brain)
 
 | Property | Value |
 |----------|-------|
-| **Hostname** | vps1 |
 | **Tailscale IP** | 100.67.88.109 |
-| **Public IP** | (via Cloudflare) |
-| **Role** | HA Secondary |
-| **OS** | Debian 12 |
+| **Role** | Primary Brain (Always On) |
+| **RAM** | 24GB |
+| **CPU** | 4 cores |
+| **Disk** | 52GB free |
 
-### Services
+### Running Services
 
-- Caddy (reverse proxy)
-- Cloudflare Tunnel
-- Tailscale
-- lsyncd
-- Docker
+- AG Manager Proxy (8045) ★
+- Caddy (443)
+- Uptime Kuma (3010)
+- Jellyseerr (5055)
+- Open WebUI (3000)
+- Ollama (11434)
+- Logarr stack
 
 ---
 
-## VPS2 (Condo)
+## VPS2 (Condo - HA Backup)
 
 | Property | Value |
 |----------|-------|
-| **Hostname** | vps2 / condo |
 | **Tailscale IP** | 100.102.55.88 |
-| **Public IP** | (via Cloudflare) |
-| **Role** | HA Primary |
-| **OS** | Debian 12 |
+| **Role** | HA Backup Brain |
+| **RAM** | 24GB |
+| **CPU** | 4 cores |
+| **Disk** | 155GB free |
 
-### Services
+### Running Services
 
-- Caddy (reverse proxy)
-- Cloudflare Tunnel
-- Tailscale
-- lsyncd
-- Docker
-- Organizr
-- Antigravity Manager
-- Headless Builder
+- AG Manager Proxy (8045) ★
+- Caddy (443)
+- Organizr (8080)
+- Headless Builder (3000/8000)
 
 ---
 
-## Unraid
+## Unraid (Heavy Muscle)
 
 | Property | Value |
 |----------|-------|
-| **Hostname** | unraid |
 | **Tailscale IP** | 100.76.168.116 |
 | **Role** | Media Services |
-| **OS** | Unraid |
+| **RAM** | 96GB |
+| **Availability** | Usually On |
 
 ### Services
 
-- Plex
-- Radarr
-- Sonarr
-- Tautulli
-- SABnzbd
+- Plex (32400)
+- Radarr (7878)
+- Sonarr (8989)
+- Tautulli (8181)
+
+---
+
+## Windows Desktop (GPU Muscle)
+
+| Property | Value |
+|----------|-------|
+| **Role** | GPU Tasks (transient) |
+| **RAM** | 32GB |
+| **GPU** | RTX 3080 |
+| **Availability** | Dev sessions only |
+
+### When Available
+
+- Ollama + GPU (fast inference)
+- Playwright browser testing
+- Heavy compilations
 
 ---
 
 ## SSH Access
 
 ```bash
-# Via Tailscale
 ssh alex@100.67.88.109   # VPS1
 ssh alex@100.102.55.88   # VPS2
-ssh alex@100.76.168.116  # Unraid
+ssh root@100.76.168.116  # Unraid
 ```
