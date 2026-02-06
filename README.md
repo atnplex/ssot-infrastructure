@@ -57,6 +57,9 @@ infrastructure/
 - [Architecture](docs/architecture.md) - System design and topology
 - [Servers](docs/servers.md) - Server inventory and roles
 - [Services](docs/services.md) - Service catalog with ports
+- [Rules](docs/rules.md) - **Infrastructure rules for agents**
+- [Port Standards](docs/port-standards.md) - Port assignments (9xxx range)
+- [Custom Repos](docs/custom-repos.md) - atnplex forks and customizations
 
 ## Bootstrap Modules
 
