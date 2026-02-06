@@ -1,0 +1,103 @@
+{
+  "mcpServers": {
+    "github-mcp-server": {
+      "command": "/atn/.gemini/antigravity/scripts/mcp_with_secrets.sh",
+      "args": [
+        "docker",
+        "run",
+        "-i",
+        "--rm",
+        "-e",
+        "GITHUB_PERSONAL_ACCESS_TOKEN",
+        "ghcr.io/github/github-mcp-server"
+      ]
+    },
+    "perplexity-ask": {
+      "command": "/atn/.gemini/antigravity/scripts/mcp_with_secrets.sh",
+      "args": [
+        "npx",
+        "-y",
+        "server-perplexity-ask"
+      ]
+    },
+    "mcp-git": {
+      "command": "docker",
+      "args": [
+        "run",
+        "-i",
+        "--rm",
+        "mcp/git"
+      ]
+    },
+    "mcp-filesystem": {
+      "command": "docker",
+      "args": [
+        "run",
+        "-i",
+        "--rm",
+        "-v",
+        "/home/alex:/home/alex",
+        "-v",
+        "/atn:/atn",
+        "mcp/filesystem",
+        "/home/alex",
+        "/atn"
+      ]
+    },
+    "mcp-fetch": {
+      "command": "docker",
+      "args": [
+        "run",
+        "-i",
+        "--rm",
+        "mcp/fetch"
+      ]
+    },
+    "mcp-playwright": {
+      "command": "docker",
+      "args": [
+        "run",
+        "-i",
+        "--rm",
+        "mcp/playwright"
+      ]
+    },
+    "mcp-memory": {
+      "command": "docker",
+      "args": [
+        "run",
+        "-i",
+        "--rm",
+        "-v",
+        "mcp-memory:/data",
+        "mcp/memory"
+      ]
+    },
+    "mcp-sequentialthinking": {
+      "command": "docker",
+      "args": [
+        "run",
+        "-i",
+        "--rm",
+        "mcp/sequentialthinking"
+      ]
+    },
+    "mcp-time": {
+      "command": "docker",
+      "args": [
+        "run",
+        "-i",
+        "--rm",
+        "mcp/time"
+      ]
+    },
+    "cloudflare": {
+      "command": "/atn/.gemini/antigravity/scripts/mcp_with_secrets.sh",
+      "args": [
+        "npx",
+        "-y",
+        "@cloudflare/mcp-server-cloudflare"
+      ]
+    }
+  }
+}

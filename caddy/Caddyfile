@@ -1,0 +1,105 @@
+# /etc/caddy/Caddyfile - HA Configuration
+{
+	email anguy079@gmail.com
+
+	servers {
+		trusted_proxies static {
+			# Cloudflare IPv4
+			173.245.48.0/20
+			103.21.244.0/22
+			103.22.200.0/22
+			103.31.4.0/22
+			141.101.64.0/18
+			108.162.192.0/18
+			190.93.240.0/20
+			188.114.96.0/20
+			197.234.240.0/22
+			198.41.128.0/17
+			# Cloudflare IPv6
+			2400:cb00::/32
+			2606:4700::/32
+			2803:f800::/32
+			2405:b500::/32
+			2405:8100::/32
+			2a06:98c0::/29
+			2c0f:f248::/32
+			# Tailscale
+			100.64.0.0/10
+			# Private
+			10.0.0.0/8
+			172.16.0.0/12
+			192.168.0.0/16
+		}
+	}
+
+	acme_dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+}
+
+# === SNIPPETS ===
+
+(common) {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+	}
+}
+
+# HA snippet - VPS1 primary, VPS2 fallback
+(ha_vps1_vps2) {
+	import common
+	reverse_proxy {
+		to 100.67.88.109:{args[0]}
+		to 100.102.55.88:{args[0]}
+		lb_policy first
+		health_uri /
+		health_interval 10s
+		fail_duration 30s
+	}
+}
+
+# HA snippet - VPS2 primary, VPS1 fallback
+(ha_vps2_vps1) {
+	import common
+	reverse_proxy {
+		to 100.102.55.88:{args[0]}
+		to 100.67.88.109:{args[0]}
+		lb_policy first
+		health_uri /
+		health_interval 10s
+		fail_duration 30s
+	}
+}
+
+# Direct snippets (no failover)
+(unraid) {
+	import common
+	reverse_proxy 100.76.168.116:{args[0]}
+}
+
+(vps1) {
+	import common
+	reverse_proxy 100.67.88.109:{args[0]}
+}
+
+(vps2) {
+	import common
+	reverse_proxy 100.102.55.88:{args[0]}
+}
+
+# === UNRAID SERVICES (Direct - Media) ===
+plex.atnplex.com     { import unraid 32400 }
+sonarr.atnplex.com   { import unraid 8989 }
+radarr.atnplex.com   { import unraid 7878 }
+tautulli.atnplex.com { import unraid 8181 }
+
+# === HA SERVICES ===
+organizr.atnplex.com { import ha_vps2_vps1 8080 }
+ag.atnplex.com       { import vps2 8045 }
+
+# === CATCH-ALL ===
+*.atnplex.com {
+	import common
+	reverse_proxy localhost:8080
+}
