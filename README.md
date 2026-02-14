@@ -1,96 +1,58 @@
 # Infrastructure
 
-Modular infrastructure management for ATN servers.
-
-## Quick Start
-
-```bash
-# Clone the repo
-git clone https://github.com/atnplex/infrastructure.git /atn/github/infrastructure
-cd /atn/github/infrastructure
-
-# Bootstrap a new server
-./bootstrap/setup.sh base docker tailscale caddy
-
-# Or install everything
-./bootstrap/setup.sh --all
-```
+**Single Source of Truth** for atnplex infrastructure configurations, automation, and deployment baselines.
 
 ## Structure
 
 ```
 infrastructure/
-├── bootstrap/              # Server bootstrap scripts
-│   ├── setup.sh            # Main bootstrap script
-│   └── modules/            # Modular install scripts
-│       ├── base.sh         # Essential packages
-│       ├── docker.sh       # Docker + Compose
-│       ├── tailscale.sh    # Tailscale VPN
-│       ├── caddy.sh        # Caddy web server
-│       ├── lsyncd.sh       # File sync daemon
-│       └── mcp.sh          # MCP Docker images
-├── caddy/                  # Caddy configuration
-│   └── Caddyfile           # Shared Caddyfile (HA)
-├── mcp/                    # MCP configuration
-│   └── mcp_config.json     # MCP server config
-├── scripts/                # Utility scripts
-│   ├── deploy-caddy.sh     # Deploy Caddyfile
-│   └── sync-check.sh       # Check sync status
-├── services/               # Docker Compose files
-│   └── (service).yml       # Per-service compose
+├── oci/                    # Oracle Cloud Infrastructure
+│   ├── baseline/           # Universal baseline configurations
+│   ├── terraform/          # IaC modules per account
+│   └── scripts/            # Deployment and automation scripts
+├── mcp/                    # MCP Server configurations
+│   ├── registry/           # MCP registry (YAML definitions)
+│   ├── servers/            # Custom MCP server code
+│   └── profiles/           # Agent profiles (tool subsets)
+├── homelab/                # Homelab configurations
+│   ├── vps-stack/          # VPS application stacks
+│   └── monitoring/         # Monitoring and alerting
 └── docs/                   # Documentation
-    ├── architecture.md     # System architecture
-    ├── servers.md          # Server inventory
-    └── services.md         # Service catalog
 ```
 
-## Servers
+## Quick Start
 
-| Server | Tailscale IP | Role |
-|--------|-------------|------|
-| VPS1 | 100.67.88.109 | HA secondary |
-| VPS2 (condo) | 100.102.55.88 | HA primary |
-| Unraid | 100.76.168.116 | Media services |
+### OCI Deployment
 
-## Documentation
+See [`oci/baseline/UNIVERSAL_BASELINE.md`](oci/baseline/UNIVERSAL_BASELINE.md) for complete configuration guide covering:
 
-- [Architecture](docs/architecture.md) - System design and topology
-- [Servers](docs/servers.md) - Server inventory and roles
-- [Services](docs/services.md) - Service catalog with ports
-- [Rules](docs/rules.md) - **Infrastructure rules for agents**
-- [Port Standards](docs/port-standards.md) - Port assignments (9xxx range)
-- [Custom Repos](docs/custom-repos.md) - atnplex forks and customizations
+- 3 accounts (vps1, vps2, vps3)
+- AMD utility instances (1OCPU/1GB) + ARM performance instances (4OCPU/24GB)
+- Networking, storage (150GB+50GB), security, monitoring
+- VPS stack: Paperless-NGX, Vaultwarden, Linkwarden, SimpleLogin
 
-## Bootstrap Modules
+### MCP Servers
 
-| Module | Description |
-|--------|-------------|
-| `base` | curl, git, jq, vim, htop |
-| `docker` | Docker, Compose, atn_bridge network |
-| `tailscale` | Tailscale VPN with route acceptance |
-| `caddy` | Caddy with Cloudflare DNS |
-| `lsyncd` | File sync daemon |
-| `mcp` | MCP Docker images |
+See [`mcp/README.md`](mcp/README.md) for MCP architecture and deployment.
 
-## Deploy Caddyfile
+## Naming Conventions
 
-After modifying `caddy/Caddyfile`:
+- **Instances**: `arm1`, `arm2`, `arm3`, `amd1`, `amd2`, `amd3`
+- **VCNs**: `vps1`, `vps2`, `vps3`
+- **VNICs**: `vnic1-arm`, `vnic1-amd`, etc.
+- **Volumes**: `vol1-perf`, `vol2-perf`, `vol3-perf`
 
-```bash
-./scripts/deploy-caddy.sh
-```
+## CIDR Allocation
 
-This will:
+| Account | VCN         | Public Subnet | Private Subnet | Docker        |
+| :------ | :---------- | :------------ | :------------- | :------------ |
+| 1       | 10.1.0.0/16 | 10.1.1.0/24   | 10.1.2.0/24    | 172.17.0.0/16 |
+| 2       | 10.2.0.0/16 | 10.2.1.0/24   | 10.2.2.0/24    | 172.18.0.0/16 |
+| 3       | 10.3.0.0/16 | 10.3.1.0/24   | 10.3.2.0/24    | 172.19.0.0/16 |
 
-1. Pull latest from git
-2. Validate the Caddyfile
-3. Backup current config
-4. Deploy and reload Caddy
+## Links
 
-## Sync Configuration
-
-lsyncd syncs service configs between servers in real-time:
-
-- Antigravity Manager config
-- DNS resolver config
-- Organizr config
+- [OCI Console](https://cloud.oracle.com/)
+- [Tailscale Admin](https://login.tailscale.com/admin)
+- [Cloudflare Dashboard](https://dash.cloudflare.com/)
+- [Bitwarden Secrets Manager](https://vault.bitwarden.com/)
