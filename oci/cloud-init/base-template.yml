@@ -375,6 +375,10 @@ runcmd:
   - chown -R alex:atn /atn
   # Run main bootstrap
   - sudo -u alex bash /atn/tmp/bootstrap_main.sh 2>&1 | tee /var/log/cloud-init-bootstrap.log
+  # Remove default users (security hardening)
+  - userdel -r ubuntu 2>/dev/null || true
+  - userdel -r oci 2>/dev/null || true  
+  - userdel -r debian 2>/dev/null || true
   # Clean up temp scripts (keep logs)
   - rm -f /atn/tmp/*.sh
 

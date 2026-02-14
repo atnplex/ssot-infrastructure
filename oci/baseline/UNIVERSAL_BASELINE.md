@@ -83,14 +83,14 @@
 
 ### Naming Convention
 
-| Resource       | Name              | CIDR/IP         | Notes                                 |
-| -------------- | ----------------- | --------------- | ------------------------------------- |
-| VCN            | `vcn3`            | `10.12.0.0/16`  | Updated to start at 10.10.x.x         |
-| Public Subnet  | `subnet3-public`  | `10.12.1.0/24`  | AMD instance                          |
-| Private Subnet | `subnet3-private` | `10.12.2.0/24`  | ARM instance (future Galera node)     |
-| AMD Instance   | `amd3`            | `10.12.1.10`    | VM.Standard.E2.1.Micro (1 OCPU, 1 GB) |
-| ARM Instance   | `arm3`            | `10.12.2.20`    | VM.Standard.A1.Flex (4 OCPU, 24 GB)   |
-| Docker Bridge  | `atn_bridge`      | `172.25.0.0/16` | Custom network (not docker0)          |
+| Resource       | Name               | CIDR/IP         | Notes                                 |
+| -------------- | ------------------ | --------------- | ------------------------------------- |
+| VCN            | `vcn3`             | `10.12.0.0/16`  | Updated to start at 10.10.x.x         |
+| Public Subnet  | `public-subnet-3`  | `10.12.1.0/24`  | AMD instance                          |
+| Private Subnet | `private-subnet-3` | `10.12.2.0/24`  | ARM instance (future Galera node)     |
+| AMD Instance   | `amd3`             | `10.12.1.10`    | VM.Standard.E2.1.Micro (1 OCPU, 1 GB) |
+| ARM Instance   | `arm3`             | `10.12.2.20`    | VM.Standard.A1.Flex (4 OCPU, 24 GB)   |
+| Docker Bridge  | `atn_bridge`       | `172.25.0.0/16` | Custom network (not docker0)          |
 
 **Note**: CIDR scheme updated to `10.10-12.0.0/16` (was `10.1-3.0.0/16` in old baseline)
 
