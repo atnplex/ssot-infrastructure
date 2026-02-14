@@ -1,701 +1,311 @@
-# Universal OCI Baseline Configuration
+# Universal OCI Baseline v3.0 - Account 3 Deployment
 
 **Version**: 3.0.0  
 **Date**: 2026-02-14  
-**Scope**: Accounts 1, 2, 3 (Always Free Tier)  
-**Status**: Production Ready
-
-> [!IMPORTANT]
-> **v3.0 Merge**: This baseline combines the **Strict Architect** design (/atn file system, Galera HA, Vector logging, modular bootstrap) with **v2.0 improvements** (better CIDR allocation, standardized ports, MCP HA across 10-15 Google accounts).
+**Scope**: Account 3 (Initial), extendable to 1 & 2  
+**Status**: Ready for Deployment
 
 ---
 
-## Table of Contents
+## Architectural Changes from v2.0
 
-1. [Architecture Overview](#architecture-overview)
-2. [Identity & File System Standard](#identity--file-system-standard)
-3. [Network Architecture](#network-architecture)
-4. [Instance Configurations](#instance-configurations)
-5. [Database: MariaDB Galera HA](#database-mariadb-galera-ha)
-6. [Logging: Vector Infrastructure](#logging-vector-infrastructure)
-7. [Service Distribution](#service-distribution)
-8. [Standardized Port Mappings](#standardized-port-mappings)
-9. [Bootstrap Framework](#bootstrap-framework)
-10. [MCP Infrastructure](#mcp-infrastructure)
-11. [Deployment Checklist](#deployment-checklist)
+### 1. Simplified `/atn` Structure
+
+**OLD** (v2.0):
+
+```
+/atn/
+└── .ignore/        # Hidden middleman
+    ├── secrets/
+    └── state/
+```
+
+**NEW** (v3.0):
+
+```
+/atn/
+├── .secrets/       # Direct dotfolder (700 perms)
+├── .state/         # Direct dotfolder (700 perms)
+├── tmp/            # tmpfs (50% RAM, cleared on reboot)
+├── logs/           # tmpfs (1GB, cleared on reboot)
+├── appdata/        # Persistent container data
+├── config/         # Service configs
+└── github/         # Git repos
+```
+
+**Rationale**: Removed unnecessary `.ignore` nesting. All private/sensitive data goes in `.secrets`, state tracking in `.state`. Both are hidden dotfolders with restrictive permissions.
+
+### 2. Security-First Cloud-Init Flow
+
+**Process** (was: install everything, then harden):
+
+1. ✅ Install BWS CLI
+2. ✅ Setup age encryption (generate key in `/atn/.secrets/age.key`)
+3. ✅ Install Tailscale + authenticate (fetch auth key from BWS)
+4. ✅ **WAIT** → Verify Tailscale connected
+5. ✅ Harden SSH → `ListenAddress <tailscale_ip>` (DISABLE public SSH)
+6. ✅ Install Docker + create `atn_bridge` network
+7. ✅ Configure firewall (UFW disabled, OCI security lists handle ingress)
+
+**Key Change**: SSH hardening happens **AFTER** Tailscale confirmed, not before. This prevents lockout if Tailscale fails.
+
+### 3. Consolidated Code from Existing Repos
+
+**Sources**:
+
+- **oracle-cloud-vps/BASELINE.md** → Cloud-init structure, network config, validation checklist
+- **atn/scripts/setup/setup_bws.sh** → BWS installer logic (checksum verification, token management)
+- **atn/lib/ops/secrets_bws.sh** → BWS secret fetching (`bws_get_secret`, `bws_export_dotenv`)
+- **atn/scripts/setup/refresh_secrets.sh** → Force refresh secrets from BWS
+
+**Consolidation**: Merged all logic into `cloud-init/base-template.yml` for idempotent deployment.
+
+### 4. Storage Allocation (Final)
+
+**Account 3** (Free Tier):
+
+- **AMD Boot**: 50 GB (Ubuntu 24.04 LTS Minimal)
+- **ARM Boot**: 150 GB (expanded boot volume, NO separate block volume)
+- **Total**: 200 GB ✅ (within Always Free limit)
+
+**Block Volumes**: REMOVED (simplified to expanded boot volumes only)
+
+### 5. Galera Clustering (Deferred to Phase 2)
+
+**Current** (Account 3 only): No Galera cluster (single account, single ARM instance)  
+**Future** (Accounts 1+2+3): Equal weights + Galera Arbitrator on AMD
+
+**Rationale**: Start simple with Account 3, add HA after validating baseline.
 
 ---
 
-## Architecture Overview
+## Account 3 Deployment Spec
 
-### Per-Account Resources (Always Free Tier)
+### Naming Convention
 
-| Component         | Quantity | Purpose                                    | Specifications                 |
-| :---------------- | :------- | :----------------------------------------- | :----------------------------- |
-| **VCN**           | 1        | Shared network for both instances          | `10.{10+N}.0.0/16`             |
-| **ARM Instance**  | 1        | Performance: Databases, heavy apps, media  | 4 OCPU, 24 GB RAM, 150 GB boot |
-| **AMD Instance**  | 1        | Utility: Networking, logs, lightweight svc | 1 OCPU, 1 GB RAM, 50 GB boot   |
-| **Total Storage** | 200 GB   | AMD boot (50) + ARM boot (150)             | No block volumes               |
+| Resource       | Name              | CIDR/IP         | Notes                                 |
+| -------------- | ----------------- | --------------- | ------------------------------------- |
+| VCN            | `vcn3`            | `10.12.0.0/16`  | Updated to start at 10.10.x.x         |
+| Public Subnet  | `subnet3-public`  | `10.12.1.0/24`  | AMD instance                          |
+| Private Subnet | `subnet3-private` | `10.12.2.0/24`  | ARM instance (future Galera node)     |
+| AMD Instance   | `amd3`            | `10.12.1.10`    | VM.Standard.E2.1.Micro (1 OCPU, 1 GB) |
+| ARM Instance   | `arm3`            | `10.12.2.20`    | VM.Standard.A1.Flex (4 OCPU, 24 GB)   |
+| Docker Bridge  | `atn_bridge`      | `172.25.0.0/16` | Custom network (not docker0)          |
 
-### The "2+1" HA Philosophy
+**Note**: CIDR scheme updated to `10.10-12.0.0/16` (was `10.1-3.0.0/16` in old baseline)
 
-**Per Account**: 2 instances (ARM + AMD) connected via private VCN  
-**Across Accounts**: 3 ARM nodes form Galera cluster, 3 AMD nodes provide edge/logging  
-**Result**: Multi-account HA with no single point of failure
+### Instance Details
 
-### Core Principles
+#### AMD3 (Utility Instance)
 
-1. **Universal Identity**: `alex:atn` (1114:1114) on ALL nodes
-2. **Standard File System**: `/atn` hierarchy on ALL nodes
-3. **Every Instance is Self-Sufficient**: Tailscale + CF Tunnel everywhere
-4. **Shared State**: Galera (ARM) + Vector Logs (AMD)
-5. **Standardized Ports**: 9xxx-9999 range, same everywhere
+**Purpose**: Always-on gateway, networking services, MCP servers (external + local fallback)
+
+**Boot Volume**: 50 GB (Ubuntu 24.04 LTS Minimal)
+
+**Services** (systemd, NOT Docker to avoid host dependency):
+
+- **Tailscale**: Subnet routing for `10.12.0.0/16` + `172.25.0.0/16`
+- **Cloudflare Tunnel**: Ingress for web services
+- **CoreDNS**: DNS resolver (systemd service, NOT Docker)
+- **Vector**: Log sink (receives from ARM3)
+
+**MCP Servers** (Docker on `atn_bridge`):
+
+- External: Perplexity, GitHub (already available)
+- Local fallback: TBD (if Google Cloud HA not deployed yet)
+
+**Ports** (standardized 9xxx-9999):
+
+- MCP servers: TBD (will define per service)
+
+#### ARM3 (Performance Instance)
+
+**Purpose**: Compute workloads, databases, web services
+
+**Boot Volume**: 150 GB (expanded, Ubuntu 24.04 LTS Minimal)
+
+**Services** (Docker on `atn_bridge`):
+
+- **Vaultwarden** → 9900 (host) → 80 (container)
+- **SimpleLogin** → 9901 (host) → 7777 (container)
+- **Open WebUI** → 9902 (host) → 8080 (container)
+- **Paperless-NGX** → 9903 (host) → 8000 (container)
+- **PostgreSQL** → 9920 (host) → 5432 (container) (for Vaultwarden, Paperless)
+
+**Future** (when Accounts 1+2 deployed):
+
+- **MariaDB Galera** → 9930 (host) → 3306 (container) (cluster node arm3)
+
+**Networking**:
+
+- Tailscale: Management access (no subnet routing)
+- All services exposed via Cloudflare Tunnel (from AMD3)
+
+### Networking
+
+**VCN**: `vcn3` (`10.12.0.0/16`)
+
+**Subnets**:
+
+- **Public** (`10.12.1.0/24`): AMD3 (+ Internet Gateway)
+- **Private** (`10.12.2.0/24`): ARM3 (+ NAT Gateway via AMD3)
+
+**Security Lists**:
+
+- **Public (AMD3)**:
+  - Inbound: Port 22 (SSH) from Tailscale ONLY (after hardening)
+  - Outbound: All (0.0.0.0/0)
+- **Private (ARM3)**:
+  - Inbound: Port 22 (SSH) from AMD3 (`10.12.1.10`), All from Tailscale subnet
+  - Outbound: All
+
+**Firewall** (UFW):
+
+- **AMD3**: Disabled (OCI security lists handle ingress, Tailscale handles access)
+- **ARM3**: Disabled
+
+**DNS**:
+
+- **AMD3**: CoreDNS (systemd, `127.0.0.1:53`) → forwards to `1.1.1.1`/`8.8.8.8`
+- **ARM3**: Uses AMD3 CoreDNS (`10.12.1.10:53`)
+
+### Docker Networking
+
+**Custom Bridge**: `atn_bridge`
+
+- **AMD3**: `172.25.0.0/16` (NOT using docker0)
+- **ARM3**: `172.25.0.0/16` (shared network name, isolated by VCN)
+
+**Rationale**: Consistent naming across all accounts. No CIDR conflicts (VCNs isolated).
 
 ---
 
-## Identity & File System Standard
+## Cloud-Init Template
 
-### User & Group (Universal)
+**Location**: `infrastructure/oci/cloud-init/base-template.yml`
 
-**CRITICAL**: All nodes MUST use these exact IDs for file permissions to work across NFS/rsync.
+**Features**:
 
-| Identity | UID/GID | Shell            | Sudo     |
-| :------- | :------ | :--------------- | :------- |
-| **alex** | 1114    | `/bin/bash`      | NOPASSWD |
-| **atn**  | 1114    | N/A (group only) | N/A      |
+- Idempotent bootstrap (checks existing state)
+- Security-first flow (Tailscale before SSH hardening)
+- State tracking (`/atn/.state/bootstrap.json`)
+- Modular scripts (easy to debug, extend)
 
-**Creation**:
+**Usage**:
+
+1. Replace placeholders: `{{ACCOUNT_NUM}}`, `{{INSTANCE_TYPE}}`, `{{BWS_TOKEN}}`, `{{SSH_PUBLIC_KEY}}`
+2. Upload to OCI as user-data during instance creation
+3. Monitor `/var/log/cloud-init-bootstrap.log` for progress
+
+**Validation**:
 
 ```bash
-groupadd -g 1114 atn
-useradd -u 1114 -g 1114 -m -s /bin/bash alex
-usermod -aG sudo alex
-echo "alex ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/alex
-```
+# SSH via Tailscale
+ssh alex@amd3
 
-### The `/atn` File System Hierarchy
+# Check bootstrap status
+jq . /atn/.state/bootstrap.json
 
-**Philosophy**: Single source of truth, strict separation of concerns.
-
-| Path                   | Owner    | Perms | Purpose                                         | Persistence         |
-| :--------------------- | :------- | :---- | :---------------------------------------------- | :------------------ |
-| `/atn`                 | alex:atn | 775   | Root of infrastructure                          | Permanent           |
-| `/atn/github`          | alex:atn | 775   | **Git repos** (ONLY place `git pull` happens)   | Permanent           |
-| `/atn/config`          | alex:atn | 775   | **Live configs** (symlinked or generated)       | Permanent           |
-| `/atn/appdata`         | alex:atn | 775   | **Docker volumes** (DB files, app data)         | Permanent           |
-| `/atn/scripts`         | alex:atn | 775   | **Helper scripts** (deployed from github)       | Permanent           |
-| `/atn/.ignore`         | alex:atn | 700   | **Secrets & state** (API keys, Tailscale)       | Permanent           |
-| `/atn/.ignore/secrets` | alex:atn | 700   | **Secret files** (fetched from Bitwarden)       | Permanent           |
-| `/atn/.ignore/state`   | alex:atn | 700   | **Runtime state** (module artifacts, inventory) | Permanent           |
-| `/atn/tmp`             | root     | 1777  | **Volatile cache** (tmpfs, 50% RAM)             | **WIPED ON REBOOT** |
-| `/atn/logs`            | alex:atn | 775   | **Log storage** (tmpfs, 1GB or 50% RAM)         | **WIPED ON REBOOT** |
-
-**Setup Script**:
-
-```bash
-# Create directories
-mkdir -p /atn/{github,config,appdata,scripts,tmp,logs}
-mkdir -p /atn/.ignore/{secrets,state}
-
-# Set ownership
-chown -R alex:atn /atn
-chmod -R 775 /atn
-chmod -R 700 /atn/.ignore
-
-# Create tmpfs mounts
-echo "tmpfs /atn/tmp tmpfs defaults,noatime,nosuid,nodev,mode=1777,size=50% 0 0" >> /etc/fstab
-echo "tmpfs /atn/logs tmpfs defaults,noatime,nosuid,nodev,mode=1777,size=1G 0 0" >> /etc/fstab
-mount -a
-
-# Convenience symlinks
-ln -sfn /atn /home/alex/atn
-ln -sfn /atn/github /home/alex/repos
-
-# Environment variables
-echo 'export TMPDIR=/atn/tmp' >> /etc/environment
-echo 'export NAMESPACE=atn' >> /etc/environment
+# Verify services
+tailscale status
+docker ps
+systemctl status coredns
 ```
 
 ---
 
-## Network Architecture
+## Deployment Checklist (Account 3 Only)
 
-### Naming Conventions
+### Prerequisites
 
-| Account | VCN    | ARM Instance | AMD Instance | ARM VNIC    | AMD VNIC    | ARM Private IP | AMD Private IP |
-| :------ | :----- | :----------- | :----------- | :---------- | :---------- | :------------- | :------------- |
-| **1**   | `vcn1` | `arm1`       | `amd1`       | `vnic1-arm` | `vnic1-amd` | `10.10.1.20`   | `10.10.1.10`   |
-| **2**   | `vcn2` | `arm2`       | `amd2`       | `vnic2-arm` | `vnic2-amd` | `10.11.1.20`   | `10.11.1.10`   |
-| **3**   | `vcn3` | `arm3`       | `amd3`       | `vnic3-arm` | `vnic3-amd` | `10.12.1.20`   | `10.12.1.10`   |
+- [ ] BWS Access Token created in Bitwarden
+- [ ] Tailscale auth key generated (`TAILSCALE_AUTH_KEY_amd3`, `TAILSCALE_AUTH_KEY_arm3`)
+- [ ] SSH public key available
+- [ ] Age public key (if using encrypted backups)
 
-### CIDR Allocation (Non-Overlapping, Future-Proof)
+### OCI Setup
 
-| Account | VCN CIDR       | Public Subnet  | Private Subnet | Docker Bridge   | atn_bridge       | Tailscale                |
-| :------ | :------------- | :------------- | :------------- | :-------------- | :--------------- | :----------------------- |
-| **1**   | `10.10.0.0/16` | `10.10.1.0/24` | `10.10.2.0/24` | `172.25.0.0/16` | `172.25.10.0/24` | `100.64.0.0/10` (shared) |
-| **2**   | `10.11.0.0/16` | `10.11.1.0/24` | `10.11.2.0/24` | `172.26.0.0/16` | `172.26.10.0/24` | `100.64.0.0/10` (shared) |
-| **3**   | `10.12.0.0/16` | `10.12.1.0/24` | `10.12.2.0/24` | `172.27.0.0/16` | `172.27.10.0/24` | `100.64.0.0/10` (shared) |
+- [ ] Create `vcn3` (`10.12.0.0/16`)
+- [ ] Create public subnet (`10.12.1.0/24`)
+- [ ] Create private subnet (`10.12.2.0/24`)
+- [ ] Create Internet Gateway (attach to public subnet)
+- [ ] Create NAT Gateway (attach to public subnet)
+- [ ] Configure security lists (SSH from Tailscale only)
 
-**Rationale**: `10.10-12.0.0/16` avoids overlap with common home/corp VPNs (`10.0.x.x`, `10.1.x.x`)
+### Instance Deployment
 
-### Docker Custom Bridge Network
+- [ ] Create AMD3 instance (VM.Standard.E2.1.Micro, 50 GB boot)
+- [ ] Assign reserved public IP to AMD3
+- [ ] Apply cloud-init user-data (from base-template.yml)
+- [ ] Wait for bootstrap (~5-10 min)
+- [ ] Verify Tailscale connection: `tailscale status`
+- [ ] Verify SSH works ONLY via Tailscale IP
 
-**Name**: `atn_bridge` (consistent across ALL instances)
+- [ ] Create ARM3 instance (VM.Standard.A1.Flex, 4 OCPU, 24 GB, 150 GB boot)
+- [ ] Apply cloud-init user-data
+- [ ] Verify Tailscale connection
+- [ ] Test ARM3 → AMD3 connectivity (`ping 10.12.1.10`)
 
-**Configuration** (Account 1):
+### Service Deployment
 
-```yaml
-networks:
-  atn_bridge:
-    driver: bridge
-    ipam:
-      config:
-        - subnet: 172.25.10.0/24
-          gateway: 172.25.10.1
-```
+- [ ] Deploy CoreDNS on AMD3 (systemd)
+- [ ] Deploy Cloudflare Tunnel on AMD3 (systemd)
+- [ ] Deploy Vector on AMD3 (systemd)
+- [ ] Deploy Docker services on ARM3 (Vaultwarden, SimpleLogin, Open WebUI, Paperless-NGX)
+- [ ] Configure Cloudflare Tunnel ingress rules (point to ARM3 services)
 
-_(Adjust to 172.26 for Account 2, 172.27 for Account 3)_
+### Validation
 
-### IPv6 Configuration
-
-**Enable on ALL VCNs and subnets** (free, improves performance):
-
-```bash
-VCN_OCID="<vcn_ocid>"
-oci network ipv6 create --vcn-id $VCN_OCID
-
-SUBNET_OCID="<subnet_ocid>"
-oci network ipv6 create --subnet-id $SUBNET_OCID
-```
+- [ ] Access Vaultwarden via Cloudflare Tunnel: `https://vault.example.com`
+- [ ] Check logs via Vector (AMD3 syslog + ARM3 container logs)
+- [ ] Verify all services accessible via Tailscale
 
 ---
 
-## Instance Configurations
+## Next Steps
 
-### AMD Utility Instance (amd1, amd2, amd3)
+### Phase 2: Multi-Account Expansion (Accounts 1 + 2)
 
-**Shape**: `VM.Standard.E2.1.Micro` (Always Free)
+1. Deploy AMD1, ARM1 (Account 1) using same cloud-init template
+2. Deploy AMD2, ARM2 (Account 2) using same cloud-init template
+3. Form MariaDB Galera cluster (ARM1 + ARM2 + ARM3)
+4. Deploy Galera Arbitrator on AMD1 (or Unraid)
+5. Test cross-account failover
+6. Update Vector to ship logs to centralized sink (Unraid or Object Storage)
 
-| Setting                 | Value                    | Notes                |
-| :---------------------- | :----------------------- | :------------------- |
-| **OCPU**                | 1                        | Always Free limit    |
-| **Memory**              | 1 GB                     | Fixed for this shape |
-| **Boot Volume**         | 50 GB @ 10 VPU           | OCI default          |
-| **Image**               | Ubuntu 24.04 LTS Minimal | Or Oracle Linux 9    |
-| **Availability Domain** | "assigned"               | Avoid charges        |
-| **Public IP**           | Ephemeral                | For direct access    |
-| **Private IP**          | `10.{10+N}.1.10`         | .10 offset for AMD   |
-| **Hostname**            | `amd{N}`                 | Matches convention   |
+### Phase 3: MCP Google Cloud HA
 
-**System Services** (systemd, NOT Docker):
+1. Create 10-15 Google Cloud accounts
+2. Deploy MCP servers on Google Cloud Run (Always Free tier)
+3. Configure Antigravity Manager to rotate across accounts
+4. Set $1/month budget alerts on all accounts
 
-- ✅ Tailscale (VPN mesh)
-- ✅ Cloudflare Tunnel (public ingress)
-- ✅ Caddy (reverse proxy)
-- ✅ CoreDNS (DNS resolver, systemd service)
-- ✅ Vector (log sink, receives from ARM)
+### Phase 4: Production Hardening
 
-**Docker Services** (on `atn_bridge`):
-
-- Vaultwarden (9300)
-- SimpleLogin (9400)
-- Open WebUI (9100)
-- Antigravity Manager Proxy (9200)
-- MCP Servers (9050-9052, local fallback)
-- Uptime Kuma (9800)
-
-**Total RAM**: ~850 MB Docker + ~100 MB system services = **~950 MB**
-
-### ARM Performance Instance (arm1, arm2, arm3)
-
-**Shape**: `VM.Standard.A1.Flex` (Always Free)
-
-| Setting                 | Value                    | Notes                    |
-| :---------------------- | :----------------------- | :----------------------- |
-| **OCPU**                | 4                        | Maximum Always Free      |
-| **Memory**              | 24 GB                    | Maximum (6 GB per OCPU)  |
-| **Boot Volume**         | 150 GB @ 10 VPU          | Maximized!               |
-| **Image**               | Ubuntu 24.04 LTS Minimal | Or Oracle Linux 9        |
-| **Availability Domain** | "assigned"               | Avoid charges, match AMD |
-| **Public IP**           | Ephemeral                | Backup access            |
-| **Private IP**          | `10.{10+N}.1.20`         | .20 offset for ARM       |
-| **Hostname**            | `arm{N}`                 | Matches convention       |
-
-**System Services** (systemd, NOT Docker):
-
-- ✅ Tailscale (VPN mesh)
-- ✅ Cloudflare Tunnel (expose services)
-- ✅ Caddy (reverse proxy)
-- ✅ CoreDNS (DNS resolver, systemd service)
-- ✅ Vector (shipper, sends logs to AMD sink)
-
-**Docker Services** (on `atn_bridge`):
-
-- **MariaDB Galera** (9900, 3-node cluster member) ⭐
-- Paperless-NGX (9500)
-- Immich (9600)
-- Linkwarden (9700)
-- Open WebUI (9100)
-- Antigravity Manager Proxy (9200)
-- PostgreSQL (9901, localhost only)
-- Redis (9902, localhost only)
-
-**Total RAM**: ~8-12 GB Docker + ~100 MB system services = **~8-12 GB**
+1. Enable OCI Monitoring (Always Free)
+2. Set up automated backups (Galera dumps to Unraid via NFS)
+3. Document runbooks (Galera failover, instance rebuild, service deployment)
+4. Create disaster recovery plan (restore Galera from backup, rebuild from scratch)
 
 ---
 
-## Database: MariaDB Galera HA
+## Key Improvements Over v2.0
 
-### 3-Node Active-Active Cluster
-
-**Topology**: `arm1` ↔ `arm2` ↔ `arm3` (all nodes are writers)
-
-**Cluster Name**: `atn-galera-cluster`
-
-**Configuration** (`/etc/mysql/mariadb.conf.d/galera.cnf`):
-
-```ini
-[galera]
-wsrep_on=ON
-wsrep_provider=/usr/lib/galera/libgalera_smr.so
-wsrep_cluster_name="atn-galera-cluster"
-wsrep_cluster_address="gcomm://10.10.1.20,10.11.1.20,10.12.1.20"
-wsrep_node_address="10.10.1.20"  # Change per node
-wsrep_node_name="arm1"  # Change per node
-wsrep_sst_method=rsync
-
-binlog_format=ROW
-default_storage_engine=InnoDB
-innodb_autoinc_lock_mode=2
-```
-
-**Bootstrap Sequence**:
-
-1. On `arm1` (first node): `galera_new_cluster`
-2. On `arm2`, `arm3`: `systemctl start mariadb`
-3. Verify cluster: `SHOW STATUS LIKE 'wsrep_cluster_size';` (should be 3)
-
-**Docker Deployment** (alternative to native):
-
-```yaml
-services:
-  galera:
-    image: mariadb:11.4
-    container_name: galera
-    restart: unless-stopped
-    networks:
-      - atn_bridge
-    ports:
-      - "9900:3306"
-      - "4567:4567" # Galera sync
-      - "4568:4568" # IST
-      - "4444:4444" # SST
-    environment:
-      MYSQL_ROOT_PASSWORD: "${GALERA_ROOT_PW}" # From Bitwarden
-      MYSQL_INITDB_SKIP_TZINFO: "yes"
-    volumes:
-      - /atn/appdata/galera:/var/lib/mysql
-      - /atn/config/galera/galera.cnf:/etc/mysql/mariadb.conf.d/galera.cnf:ro
-```
+✅ **Simplified file structure** (no `.ignore` middleman)  
+✅ **Security-first cloud-init** (Tailscale before public SSH disabled)  
+✅ **Consolidated existing code** (BWS, Tailscale, Docker from atn repo)  
+✅ **Correct storage allocation** (50 GB AMD + 150 GB ARM = 200 GB total)  
+✅ **Standardized port mappings** (9xxx-9999 range)  
+✅ **Idempotent bootstrap** (state tracking, module completion markers)  
+✅ **AMD focus on systemd services** (CoreDNS, CF Tunnel, Vector NOT in Docker)  
+✅ **Tailscale + CF Tunnel on every instance** (no single point of failure)
 
 ---
 
-## Logging: Vector Infrastructure
+## Files Created/Updated
 
-### Architecture
+1. **cloud-init/base-template.yml** ← Production-ready cloud-init template
+2. **baseline/UNIVERSAL_BASELINE.md** ← This document
+3. **docs/GALERA_SPLIT_BRAIN.md** ← Explanation of node weights + arbitrator recommendation
 
-**Flow**: ARM instances → Vector shipper → AMD sink → disk  
-**Purpose**: Prevent ARM idle reclamation, centralize logs on AMD
-
-### Vector on AMD (Sink)
-
-**Role**: Receives logs from all ARM instances, writes to `/atn/logs`
-
-**Configuration** (`/atn/config/vector/vector-amd.yaml`):
-
-```yaml
-sources:
-  arm_logs:
-    type: socket
-    address: "0.0.0.0:9091"
-    mode: tcp
-
-sinks:
-  disk:
-    type: file
-    inputs:
-      - arm_logs
-    path: "/atn/logs/%Y-%m-%d-{{ host }}.log"
-    encoding:
-      codec: json
-```
-
-**Systemd Service** (`/etc/systemd/system/vector.service`):
-
-```ini
-[Unit]
-Description=Vector Log Aggregation
-After=network.target
-
-[Service]
-Type=simple
-User=alex
-Group=atn
-ExecStart=/usr/local/bin/vector --config /atn/config/vector/vector-amd.yaml
-Restart=always
-
-[Install]
-WantedBy=multi-user.target
-```
-
-### Vector on ARM (Shipper)
-
-**Role**: Ships logs to AMD sink
-
-**Configuration** (`/atn/config/vector/vector-arm.yaml`):
-
-```yaml
-sources:
-  docker_logs:
-    type: docker_logs
-
-transforms:
-  parse:
-    type: remap
-    inputs:
-      - docker_logs
-    source: |
-      .host = "{{ host }}"
-
-sinks:
-  amd_sink:
-    type: socket
-    inputs:
-      - parse
-    address: "10.10.1.10:9091" # AMD private IP, adjust per account
-    mode: tcp
-    encoding:
-      codec: json
-```
-
-**Install Vector** (static binary):
-
-```bash
-curl --proto '=https' --tlsv1.2 -sSfL https://sh.vector.dev | bash -s -- -y
-mv ~/.vector/bin/vector /usr/local/bin/
-```
-
----
-
-## Service Distribution
-
-### AMD Utility (Always-On, Low Resource)
-
-**System Services** (systemd):
-
-- Tailscale
-- Cloudflare Tunnel
-- Caddy
-- CoreDNS (systemd, not Docker)
-- Vector (sink)
-
-**Docker Services** (on `atn_bridge`):
-
-- Vaultwarden (9300)
-- SimpleLogin (9400)
-- Open WebUI (9100)
-- Antigravity Manager Proxy (9200)
-- MCP OCI (9050)
-- MCP Cloudflare (9051)
-- MCP Bitwarden (9052)
-- Uptime Kuma (9800)
-
-**Total RAM**: ~950 MB
-
-### ARM Performance (High Resource)
-
-**System Services** (systemd):
-
-- Tailscale
-- Cloudflare Tunnel
-- Caddy
-- CoreDNS (systemd, not Docker)
-- Vector (shipper)
-
-**Docker Services** (on `atn_bridge`):
-
-- **MariaDB Galera** (9900) ⭐
-- Paperless-NGX (9500)
-- Immich (9600)
-- Linkwarden (9700)
-- Sonarr (9710)
-- Radarr (9711)
-- Jellyseerr (9712)
-- Open WebUI (9100)
-- Antigravity Manager Proxy (9200)
-- PostgreSQL (9901, localhost only)
-- Redis (9902, localhost only)
-
-**Total RAM**: ~8-12 GB
-
----
-
-## Standardized Port Mappings
-
-**CRITICAL**: Same host port across ALL servers and accounts
-
-| Service             | Container Port | Host Port | Accessible Via        | Location  |
-| :------------------ | :------------- | :-------- | :-------------------- | :-------- |
-| Open WebUI          | 3000           | 9100      | CF Tunnel / Tailscale | AMD + ARM |
-| Antigravity Manager | 8080           | 9200      | CF Tunnel / Tailscale | AMD + ARM |
-| Vaultwarden         | 80             | 9300      | CF Tunnel             | AMD only  |
-| SimpleLogin         | 7777           | 9400      | CF Tunnel             | AMD only  |
-| Paperless-NGX       | 8000           | 9500      | CF Tunnel / Tailscale | ARM only  |
-| Immich              | 2283           | 9600      | CF Tunnel / Tailscale | ARM only  |
-| Linkwarden          | 3000           | 9700      | Tailscale             | ARM only  |
-| Sonarr              | 8989           | 9710      | Tailscale             | ARM only  |
-| Radarr              | 7878           | 9711      | Tailscale             | ARM only  |
-| Jellyseerr          | 5055           | 9712      | CF Tunnel / Tailscale | ARM only  |
-| Uptime Kuma         | 3001           | 9800      | Tailscale             | AMD only  |
-| MariaDB Galera      | 3306           | 9900      | VCN + Tailscale       | ARM only  |
-| PostgreSQL          | 5432           | 9901      | localhost only        | ARM only  |
-| Redis               | 6379           | 9902      | localhost only        | ARM only  |
-| MCP OCI             | 8000           | 9050      | Tailscale             | AMD only  |
-| MCP Cloudflare      | 8001           | 9051      | Tailscale             | AMD only  |
-| MCP Bitwarden       | 8002           | 9052      | Tailscale             | AMD only  |
-| Vector (sink)       | -              | 9091      | VCN (ARM→AMD)         | AMD only  |
-
----
-
-## Bootstrap Framework
-
-### Modular Approach
-
-**Repo**: `atnplex/infrastructure/bootstrap/`
-
-**Structure**:
-
-```
-bootstrap/
-├── 00-preflight/
-│   └── check.sh          # OS, network, time sync validation
-├── 10-base-os/
-│   └── setup.sh          # Identity, /atn structure, tmpfs
-├── 20-security/
-│   └── harden.sh         # SSH, firewall, fail2ban
-├── 30-mesh/
-│   ├── tailscale.sh      # Tailscale setup
-│   ├── cloudflare.sh     # CF Tunnel setup
-│   └── caddy.sh          # Caddy reverse proxy
-├── 40-storage/
-│   └── mount.sh          # Unraid NFS, rclone cloud mounts
-├── 50-databases/
-│   ├── galera.sh         # MariaDB Galera setup (ARM only)
-│   └── postgres.sh       # PostgreSQL setup (ARM only)
-├── 60-apps/
-│   └── deploy.sh         # Docker Compose stacks
-├── 70-observability/
-│   ├── vector.sh         # Vector logging
-│   └── prometheus.sh     # Metrics (optional)
-└── config/
-    └── global.env        # User-editable values
-```
-
-### Global Configuration (`config/global.env`)
-
-```bash
-# Identity
-ATN_USER="alex"
-ATN_GROUP="atn"
-ATN_UID=1114
-ATN_GID=1114
-
-# Account info
-ACCOUNT_NUMBER=1  # Change per account (1, 2, 3)
-VCN_CIDR="10.10.0.0/16"  # Adjust per account
-DOCKER_BRIDGE_CIDR="172.25.0.0/16"  # Adjust per account
-
-# Secrets (fetched from Bitwarden at runtime)
-TAILSCALE_AUTH_KEY=""  # Populated by bootstrap
-CF_TUNNEL_TOKEN=""  # Populated by bootstrap
-GALERA_ROOT_PW=""  # Populated by bootstrap
-
-# Unraid
-UNRAID_IP="<tailscale_ip>"
-UNRAID_NFS_PATH="/mnt/user"
-```
-
-### Per-Host Manifest (`manifests/arm1.yml`)
-
-```yaml
-host: arm1
-role: arm-performance
-account: 1
-modules:
-  - 00-preflight
-  - 10-base-os
-  - 20-security
-  - 30-mesh
-  - 40-storage
-  - 50-databases:
-      galera_role: primary # First node bootstraps
-  - 60-apps:
-      profile: media+openwebui
-  - 70-observability:
-      vector_role: shipper
-```
-
-### Idempotency Contract
-
-Each module MUST:
-
-1. **Check state** before making changes
-2. **Write artifacts** to `/atn/.ignore/state/<module>.json`
-3. **Support `DRY_RUN=1`** flag (print actions, don't execute)
-4. **Exit codes**: 0=success, 1=error, 2=skipped (already done)
-
----
-
-## MCP Infrastructure
-
-### 10-15 Google Account HA Strategy
-
-**Goal**: Deploy same MCP image across 10-15 Google Cloud accounts
-
-**Budget**: $1/month limit on EVERY Google project + Cloudflare project
-
-### Deploy-Once-Update-All Pattern
-
-**Central Registry**: Google Artifact Registry on "primary" account
-
-**Deployment Flow**:
-
-```bash
-#!/bin/bash
-# deploy-mcp.sh
-ACCOUNTS=("account1" "account2" ... "account15")
-IMAGE="us-central1-docker.pkg.dev/primary/mcps/oci-mcp:latest"
-
-# Build once
-docker build -t $IMAGE .
-docker push $IMAGE
-
-# Deploy to all accounts
-for ACCOUNT in "${ACCOUNTS[@]}"; do
-  gcloud run deploy oci-mcp \
-    --project=$ACCOUNT \
-    --image=$IMAGE \
-    --region=us-central1 \
-    --max-instances=1 \
-    --cpu=1 \
-    --memory=512Mi \
-    --no-allow-unauthenticated
-done
-```
-
-### Budget Controls
-
-**Per Google Project**:
-
-```bash
-gcloud billing budgets create \
-  --billing-account=<BILLING_ACCOUNT_ID> \
-  --display-name="MCP Budget" \
-  --budget-amount=1USD \
-  --threshold-rules=percent=50,percent=100 \
-  --alert-pubsub-topic=projects/<PROJECT>/topics/budget-alerts
-```
-
-**Kill Switch**: Cloud Function scales Cloud Run to 0 when budget hit
-
-**Per Cloudflare Project**: $1/month limit via dashboard settings
-
----
-
-## Deployment Checklist
-
-### Pre-Deployment
-
-- [ ] Confirm OCI account access (all 3)
-- [ ] Generate SSH key pair
-- [ ] Obtain Tailscale auth keys from Bitwarden
-- [ ] Obtain Cloudflare Tunnel tokens from Bitwarden
-- [ ] Review existing OCI security lists (vps1/vps2)
-
-### Per-Account Deployment
-
-#### Phase 1: Network Setup
-
-- [ ] Create VCN: `vcn{N}` with CIDR `10.{10+N}.0.0/16`
-- [ ] Create public subnet: `10.{10+N}.1.0/24`
-- [ ] Create private subnet: `10.{10+N}.2.0/24`
-- [ ] Create Internet Gateway
-- [ ] Update route tables
-- [ ] Enable IPv6
-
-#### Phase 2: AMD Utility Instance
-
-- [ ] Launch `VM.Standard.E2.1.Micro`, hostname `amd{N}`
-- [ ] Boot volume: 50 GB
-- [ ] Run bootstrap modules: 00, 10, 20, 30, 60, 70
-- [ ] Verify Vector sink running
-- [ ] Deploy Docker stacks (Vaultwarden, SimpleLogin, MCP)
-
-#### Phase 3: ARM Performance Instance
-
-- [ ] Launch `VM.Standard.A1.Flex` (4 OCPU, 24 GB), hostname `arm{N}`
-- [ ] Boot volume: 150 GB
-- [ ] Run bootstrap modules: 00, 10, 20, 30, 40, 50, 60, 70
-- [ ] Verify boot volume expanded (`df -h /`)
-- [ ] Deploy Docker stacks (Paperless, Immich, media apps)
-
-#### Phase 4: Galera Cluster Setup
-
-- [ ] On `arm1`: Bootstrap Galera (`galera_new_cluster`)
-- [ ] On `arm2`, `arm3`: Join cluster (`systemctl start mariadb`)
-- [ ] Verify cluster size: `SHOW STATUS LIKE 'wsrep_cluster_size';`
-- [ ] Test failover (stop `arm1`, verify `arm2` writable)
-
-#### Phase 5: Post-Deployment
-
-- [ ] Create OCI budget alerts ($1/month)
-- [ ] Enable OCI Monitoring
-- [ ] Test inter-instance connectivity
-- [ ] Test Tailscale mesh
-- [ ] Test Cloudflare Tunnel access
-- [ ] Document public IPs in Bitwarden
-
----
-
-## Appendix: Quick Reference
-
-### CIDR Summary
-
-| Account | VCN          | Public Subnet | Private Subnet | Docker        | atn_bridge     |
-| :------ | :----------- | :------------ | :------------- | :------------ | :------------- |
-| 1       | 10.10.0.0/16 | 10.10.1.0/24  | 10.10.2.0/24   | 172.25.0.0/16 | 172.25.10.0/24 |
-| 2       | 10.11.0.0/16 | 10.11.1.0/24  | 10.11.2.0/24   | 172.26.0.0/16 | 172.26.10.0/24 |
-| 3       | 10.12.0.0/16 | 10.12.1.0/24  | 10.12.2.0/24   | 172.27.0.0/16 | 172.27.10.0/24 |
-
-### Instance IPs
-
-| Account | ARM Private | AMD Private | ARM Tailscale | AMD Tailscale |
-| :------ | :---------- | :---------- | :------------ | :------------ |
-| 1       | 10.10.1.20  | 10.10.1.10  | 100.x.x.21    | 100.x.x.11    |
-| 2       | 10.11.1.20  | 10.11.1.10  | 100.x.x.22    | 100.x.x.12    |
-| 3       | 10.12.1.20  | 10.12.1.10  | 100.x.x.23    | 100.x.x.13    |
-
-### Galera Cluster
-
-| Node | Private IP | Hostname | Role                |
-| :--- | :--------- | :------- | :------------------ |
-| arm1 | 10.10.1.20 | arm1     | Primary (bootstrap) |
-| arm2 | 10.11.1.20 | arm2     | Member              |
-| arm3 | 10.12.1.20 | arm3     | Member              |
-
-### Resource Limits (Always Free)
-
-- **Compute**: 4 ARM OCPU + 24 GB RAM per account, 1 AMD instance (1 OCPU + 1 GB)
-- **Storage**: 200 GB total per account (50 GB AMD + 150 GB ARM)
-- **Network**: 2 VCNs per account, 10 TB egress/month, IPv6 free
-- **Monitoring**: OCI Monitoring included
+Ready for deployment to Account 3! 🚀

@@ -1,0 +1,390 @@
+#cloud-config
+# =============================================================================
+# OCI Cloud-Init Template - Account 3 (extendable to 1, 2)
+# Security-First Bootstrap: BWS → Tailscale → Disable Public SSH
+# =============================================================================
+# Version: 3.0.0
+# Date: 2026-02-14
+# Compatible: Ubuntu 24.04 LTS Minimal
+#
+# PREREQUISITES:
+# 1. BWS_ACCESS_TOKEN stored in OCI Vault or provided via user-data substitution
+# 2. TAILSCALE_AUTH_KEY stored in Bitwarden Secrets Manager
+# 3. AGE_PUBLIC_KEY (if using age encryption)
+#
+# USAGE:
+# Replace {{ACCOUNT_NUM}}, {{INSTANCE_TYPE}}, {{BWS_TOKEN}} before deploying
+# =============================================================================
+
+hostname: {{INSTANCE_TYPE}}{{ACCOUNT_NUM}}
+
+# User Creation (alex:atn 1114:1114)
+users:
+  - name: alex
+    uid: 1114
+    groups: [sudo, docker, atn]
+    shell: /bin/bash
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    ssh_authorized_keys:
+      - {{SSH_PUBLIC_KEY}}  # Replace with actual SSH public key
+
+# Groups
+groups:
+  - atn: 1114
+
+# Timezone
+timezone: America/Los_Angeles
+
+# Package Updates
+package_update: true
+package_upgrade: true
+
+# Packages (minimal, rest installed via bootstrap scripts)
+packages:
+  - curl
+  - wget
+  - git
+  - jq
+  - htop
+  - net-tools
+  - ca-certificates
+  - gnupg
+  - lsb-release
+  - ufw
+
+# Write Files
+write_files:
+  # =============================================================================
+  # 1. BWS Access Token (from user-data substitution or Vault)
+  # =============================================================================
+  - path: /atn/.secrets/bws.env
+    owner: alex:atn
+    permissions: '0600'
+    content: |
+      export BWS_ACCESS_TOKEN="{{BWS_TOKEN}}"
+      export BWS_PROJECT_ID="{{BWS_PROJECT_ID}}"
+
+  # =============================================================================
+  # 2. Bootstrap Marker (tracks what modules have run)
+  # =============================================================================
+  - path: /atn/.state/bootstrap.json
+    owner: alex:atn
+    permissions: '0644'
+    content: |
+      {
+        "version": "3.0.0",
+        "initialized_at": "{{TIMESTAMP}}",
+        "account": {{ACCOUNT_NUM}},
+        "instance_type": "{{INSTANCE_TYPE}}",
+        "modules_completed": []
+      }
+
+  # =============================================================================
+  # 3. BWS Installer Script (idempotent)
+  # =============================================================================
+  - path: /atn/tmp/install_bws.sh
+    owner: alex:atn
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      set -euo pipefail
+      
+      echo "[BOOTSTRAP] Installing Bitwarden Secrets CLI (bws)..."
+      
+      # Check if already installed
+      if command -v bws &>/dev/null; then
+        echo "[BOOTSTRAP] bws already installed: $(bws --version)"
+        exit 0
+      fi
+      
+      # Download and install
+      BWS_INSTALLER_URL="https://bws.bitwarden.com/install"
+      BWS_TMP="/tmp/bws-install-$RANDOM"
+      
+      curl -fsSL "$BWS_INSTALLER_URL" -o "$BWS_TMP"
+      chmod +x "$BWS_TMP"
+      bash "$BWS_TMP"
+      rm -f "$BWS_TMP"
+      
+      # Verify installation
+      if command -v bws &>/dev/null; then
+        echo "[BOOTSTRAP] ✅ bws installed successfully: $(bws --version)"
+      else
+        echo "[BOOTSTRAP] ❌ bws installation failed"
+        exit 1
+      fi
+
+  # =============================================================================
+  # 4. Age Setup Script (for encrypted secrets storage)
+  # =============================================================================
+  - path: /atn/tmp/install_age.sh
+    owner: alex:atn
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      set -euo pipefail
+      
+      echo "[BOOTSTRAP] Installing age (encryption tool)..."
+      
+      # Check if already installed
+      if command -v age &>/dev/null; then
+        echo "[BOOTSTRAP] age already installed: $(age --version)"
+        exit 0
+      fi
+      
+      # Install via package manager or download binary
+      if [[ -f /etc/debian_version ]]; then
+        apt-get install -y age
+      else
+        # Download static binary (universal fallback)
+        AGE_VERSION="v1.1.1"
+        wget -O /usr/local/bin/age "https://github.com/FiloSottile/age/releases/download/${AGE_VERSION}/age-${AGE_VERSION}-linux-amd64" 
+        chmod +x /usr/local/bin/age
+      fi
+      
+      # Generate age key if not exists
+      if [[ ! -f /atn/.secrets/age.key ]]; then
+        age-keygen -o /atn/.secrets/age.key
+        chown alex:atn /atn/.secrets/age.key
+        chmod 600 /atn/.secrets/age.key
+        echo "[BOOTSTRAP] ✅ age key generated at /atn/.secrets/age.key"
+      fi
+
+  # =============================================================================
+  # 5. Tailscale Installer with Temporary Auth (fetch from BWS)
+  # =============================================================================
+  - path: /atn/tmp/install_tailscale.sh
+    owner: alex:atn
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      set -euo pipefail
+      
+      echo "[BOOTSTRAP] Installing Tailscale..."
+      
+      # Check if already installed
+      if command -v tailscale &>/dev/null; then
+        echo "[BOOTSTRAP] Tailscale already installed"
+        tailscale status || true
+        exit 0
+      fi
+      
+      # Install Tailscale
+      curl -fsSL https://tailscale.com/install.sh | sh
+      
+      # Load BWS token
+      source /atn/.secrets/bws.env
+      
+      # Fetch Tailscale auth key from BWS
+      echo "[BOOTSTRAP] Fetching Tailscale auth key from Bitwarden..."
+      TAILSCALE_KEY=$(bws secret get "$BWS_PROJECT_ID" "TAILSCALE_AUTH_KEY_{{INSTANCE_TYPE}}{{ACCOUNT_NUM}}" | jq -r '.value')
+      
+      if [[ -z "$TAILSCALE_KEY" ]]; then
+        echo "[BOOTSTRAP] ❌ Failed to fetch Tailscale auth key"
+        exit 1
+      fi
+      
+      # Connect to Tailscale
+      tailscale up --authkey="$TAILSCALE_KEY" --ssh --accept-routes
+      
+      # Verify connection
+      if tailscale status &>/dev/null; then
+        TS_IP=$(tailscale ip -4)
+        echo "[BOOTSTRAP] ✅ Tailscale connected: ${TS_IP}"
+        
+        # Save Tailscale IP to state
+        jq --arg ts_ip "$TS_IP" '.tailscale_ip = $ts_ip' /atn/.state/bootstrap.json > /tmp/bootstrap.json
+        mv /tmp/bootstrap.json /atn/.state/bootstrap.json
+      else
+        echo "[BOOTSTRAP] ❌ Tailscale connection failed"
+        exit 1
+      fi
+
+  # =============================================================================
+  # 6. SSH Hardening (ONLY AFTER TAILSCALE CONFIRMED)
+  # =============================================================================
+  - path: /atn/tmp/harden_ssh.sh
+    owner: alex:atn
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      set -euo pipefail
+      
+      echo "[BOOTSTRAP] Hardening SSH (restricting to Tailscale only)..."
+      
+      # Check if Tailscale is running
+      if ! tailscale status &>/dev/null; then
+        echo "[BOOTSTRAP] ❌ Tailscale not running, skipping SSH hardening for safety"
+        exit 1
+      fi
+      
+      TS_IP=$(tailscale ip -4)
+      echo "[BOOTSTRAP] Tailscale IP: ${TS_IP}"
+      
+      # Backup original sshd_config
+      cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak
+      
+      # Apply hardened SSH config
+      cat >> /etc/ssh/sshd_config <<EOF
+# === Tailscale-Only SSH (Applied by Cloud-Init) ===
+ListenAddress ${TS_IP}
+PermitRootLogin no
+PasswordAuthentication no
+PubkeyAuthentication yes
+AllowUsers alex
+EOF
+      
+      # Restart SSH
+      systemctl restart sshd
+      
+      echo "[BOOTSTRAP] ✅ SSH hardened - now listening ONLY on Tailscale IP (${TS_IP})"
+      echo "[BOOTSTRAP] ⚠️  Public IP SSH access DISABLED"
+
+  # =============================================================================
+  # 7. Docker Installation
+  # =============================================================================
+  - path: /atn/tmp/install_docker.sh
+    owner: alex:atn
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      set -euo pipefail
+      
+      echo "[BOOTSTRAP] Installing Docker..."
+      
+      # Check if already installed
+      if command -v docker &>/dev/null; then
+        echo "[BOOTSTRAP] Docker already installed: $(docker --version)"
+        exit 0
+      fi
+      
+      # Install Docker
+      curl -fsSL https://get.docker.com | sh
+      
+      # Add alex to docker group
+      usermod -aG docker alex
+      
+      # Create custom docker bridge network (atn_bridge)
+      docker network create \
+        --driver bridge \
+        --subnet 172.{{25 + ACCOUNT_NUM - 3}}.0.0/16 \
+        atn_bridge || echo "Network already exists"
+      
+      echo "[BOOTSTRAP] ✅ Docker installed and atn_bridge network created"
+
+  # =============================================================================
+  # 8. Firewall Rules (UFW)
+  # =============================================================================
+  - path: /atn/tmp/setup_firewall.sh
+    owner: alex:atn
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      set -euo pipefail
+      
+      echo "[BOOTSTRAP] Configuring firewall (UFW)..."
+      
+      # Disable UFW initially (OCI security lists handle ingress)
+      ufw --force disable
+      
+      # Allow Tailscale
+      ufw allow in on tailscale0
+      
+      # Allow SSH from Tailscale only (redundant but explicit)
+      TS_SUBNET="100.64.0.0/10"
+      ufw allow from $TS_SUBNET to any port 22 proto tcp
+      
+      # Deny SSH from everywhere else
+      ufw deny 22/tcp
+      
+      echo "[BOOTSTRAP] ✅ Firewall rules configured (UFW still disabled, OCI handles ingress)"
+
+  # =============================================================================
+  # 9. Main Bootstrap Orchestrator
+  # =============================================================================
+  - path: /atn/tmp/bootstrap_main.sh
+    owner: alex:atn
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      set -euo pipefail
+      
+      echo "=============================================="
+      echo "  OCI Cloud-Init Bootstrap v3.0.0"
+      echo "  Account: {{ACCOUNT_NUM}} | Instance: {{INSTANCE_TYPE}}{{ACCOUNT_NUM}}"
+      echo "=============================================="
+      
+      # Create /atn structure
+      mkdir -p /atn/{.secrets,.state,tmp,logs,appdata,config,github}
+      chown -R alex:atn /atn
+      chmod 755 /atn
+      chmod 700 /atn/.secrets /atn/.state
+      
+      # Mount tmpfs for /atn/tmp (50% RAM)
+      if ! mount | grep '/atn/tmp' &>/dev/null; then
+        mount -t tmpfs -o size=50%,uid=1114,gid=1114,mode=1777 tmpfs /atn/tmp
+        echo "tmpfs /atn/tmp tmpfs size=50%,uid=1114,gid=1114,mode=1777 0 0" >> /etc/fstab
+      fi
+      
+      # Mount tmpfs for /atn/logs (1GB or 50% RAM, whichever is smaller)
+      if ! mount | grep '/atn/logs' &>/dev/null; then
+        mount -t tmpfs -o size=1G,uid=1114,gid=1114,mode=0755 tmpfs /atn/logs
+        echo "tmpfs /atn/logs tmpfs size=1G,uid=1114,gid=1114,mode=0755 0 0" >> /etc/fstab
+      fi
+      
+      # Run bootstrap modules in order
+      MODULES=(
+        "/atn/tmp/install_bws.sh"
+        "/atn/tmp/install_age.sh"
+        "/atn/tmp/install_tailscale.sh"
+        "/atn/tmp/install_docker.sh"
+        "/atn/tmp/setup_firewall.sh"
+        "/atn/tmp/harden_ssh.sh"
+      )
+      
+      for module in "${MODULES[@]}"; do
+        if [[ -x "$module" ]]; then
+          echo "▶️  Running: $(basename $module)"
+          if bash "$module"; then
+            # Mark module as completed in state
+            MODULE_NAME=$(basename "$module" .sh)
+            jq --arg mod "$MODULE_NAME" '.modules_completed += [$mod]' /atn/.state/bootstrap.json > /tmp/bootstrap.json
+            mv /tmp/bootstrap.json /atn/.state/bootstrap.json
+            echo "✅ $(basename $module) completed"
+          else
+            echo "❌ $(basename $module) FAILED"
+            exit 1
+          fi
+        fi
+      done
+      
+      echo "=============================================="
+      echo "  ✅ Bootstrap Complete!"
+      echo "=============================================="
+      echo "Tailscale IP: $(tailscale ip -4 2>/dev/null || echo 'Not connected')"
+      echo "SSH Access: Tailscale only (public IP disabled)"
+      echo "Docker Network: atn_bridge (172.{{25 + ACCOUNT_NUM - 3}}.0.0/16)"
+      echo "Next Steps: Deploy Docker services, configure Galera"
+
+# =============================================================================
+# runcmd: Execute bootstrap
+# =============================================================================
+runcmd:
+  # Ensure /atn exists before running scripts
+  - mkdir -p /atn/{.secrets,.state,tmp,logs}
+  - chown -R alex:atn /atn
+  # Run main bootstrap
+  - sudo -u alex bash /atn/tmp/bootstrap_main.sh 2>&1 | tee /var/log/cloud-init-bootstrap.log
+  # Clean up temp scripts (keep logs)
+  - rm -f /atn/tmp/*.sh
+
+# =============================================================================
+# Final Message
+# =============================================================================
+final_message: |
+  ============================================== 
+   OCI Instance Bootstrap Complete
+   Account: {{ACCOUNT_NUM}} | Instance: {{INSTANCE_TYPE}}{{ACCOUNT_NUM}}
+   Tailscale: Connected (check /var/log/cloud-init-bootstrap.log)
+   SSH: Tailscale-only (public IP disabled) 
+  ============================================== 
