@@ -1,0 +1,28 @@
+name: Project Gardener
+
+on:
+  schedule:
+    - cron: '0 0 * * *' # Runs daily at midnight UTC
+  workflow_dispatch: # Allows manual trigger
+
+jobs:
+  garden:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run Project Gardener
+        env:
+          # Use ORG_ADMIN_TOKEN if available for org-wide access, otherwise fallback to GITHUB_TOKEN (might have limited scope)
+          GH_TOKEN: ${{ secrets.ORG_ADMIN_TOKEN || secrets.GITHUB_TOKEN }}
+          DRY_RUN: 'false'
+        run: |
+          python scripts/project_gardener.py
