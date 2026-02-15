@@ -1,0 +1,40 @@
+name: AI Workforce
+
+on:
+  schedule:
+    - cron: '*/10 * * * *' # Run every 10 minutes
+  workflow_dispatch:
+  issues:
+    types: [labeled]
+
+jobs:
+  ai-agent:
+    # Only run if triggered by schedule/dispatch OR if the label is 'ai-assigned'
+    if: |
+      github.event_name == 'schedule' || 
+      github.event_name == 'workflow_dispatch' || 
+      (github.event_name == 'issues' && github.event.label.name == 'ai-assigned')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Run AI Worker
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }} # Needs Org-wide permissions? Or use GITHUB_TOKEN if sufficient
+          # GITHUB_TOKEN in 'issues' event has write permission to the issue.
+          # But 'schedule' might need more if scanning ORG.
+          # For now, let's use GITHUB_TOKEN and assume it runs in 'infrastructure' repo 
+          # but scans via searching ORG. Searching ORG usually requires a PAT (GH_TOKEN).
+          # We will default to secrets.GH_TOKEN (PAT) but fallback to GITHUB_TOKEN if missing (might fail for cross-repo).
+          AI_WORKER_KEY: ${{ secrets.AI_WORKER_KEY }}
+        run: |
+          # If GH_TOKEN secret is not set, fallback to ecosystem token
+          if [ -z "$GH_TOKEN" ]; then export GH_TOKEN=${{ secrets.GITHUB_TOKEN }}; fi
+          
+          python scripts/ai_worker.py
