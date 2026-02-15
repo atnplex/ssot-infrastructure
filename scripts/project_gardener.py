@@ -281,9 +281,26 @@ def main():
                 update_item_field(project_id, item_id, status_field['id'], todo_option_id)
                 status_updated_in_this_pass = True
 
-        # 5. Priority: Derived from labels
-        if state == 'OPEN' and priority_field and 'Priority' not in current_values:
-            target_priority = None
+        # 5. Priority: Derived from labels (Dynamic)
+        # Check for Critical first (Enforcement)
+        target_priority = None
+        force_update = False
+        
+        # Check for High/Critical labels that should FORCE an update
+        for label in labels:
+            n_label = label.lower()
+            if 'critical' in n_label or 'p0' in n_label:
+                target_priority = 'P0'
+                force_update = True
+                break
+            if 'high' in n_label or 'p1' in n_label:
+                target_priority = 'P1'
+                # Optional: Force update for P1 too? Let's say yes for consistency.
+                force_update = True
+                break
+        
+        # If no forced priority, check if empty and derive defaults
+        if not target_priority and 'Priority' not in current_values and state == 'OPEN':
             for label in labels:
                 normalized = label.lower()
                 for key, prio in LABEL_PRIORITY_MAP.items():
@@ -291,18 +308,26 @@ def main():
                         target_priority = prio
                         break
                 if target_priority: break
-            
             if not target_priority: target_priority = DEFAULT_PRIORITY
-                
-            target_option_id = None
-            for name, opt_id in priority_options.items():
-                if target_priority in name:
-                    target_option_id = opt_id
-                    break
-            
-            if target_option_id:
-                print(f"  [Triage] Priority empty. Derived '{target_priority}' from labels/default.")
-                update_item_field(project_id, item_id, priority_field['id'], target_option_id)
+
+        # Apply Update if needed
+        if target_priority:
+             # Map target string (P0, P1) to Option ID
+             target_option_id = None
+             for name, opt_id in priority_options.items():
+                 # Fuzzy match "P0" in "P0 - Critical"
+                 if target_priority in name:
+                     target_option_id = opt_id
+                     break
+             
+             if target_option_id:
+                 current_prio_val = current_values.get('Priority')
+                 # Update if: Forced (and different) OR Empty
+                 if (force_update and current_prio_val != target_priority) or (not current_prio_val and not force_update):
+                      reason = "Enforced" if force_update else "Derived"
+                      print(f"  [Priority] {reason} '{target_priority}' from labels.")
+                      update_item_field(project_id, item_id, priority_field['id'], target_option_id)
+                      status_updated_in_this_pass = True
 
         # 5. Stale Detection
         if state == 'OPEN' and updated_at_str:
@@ -339,38 +364,14 @@ def assign_ai_to_issue(owner, repo, issue_number):
     # We use gh api to invoke the copilot assignment if possible, 
     # OR we use the mcp tool directly if we were running as an agent.
     # But this script runs in GH Actions. GH Actions doesn't have access to 'mcp tools'.
-    # It has access to 'gh' CLI.
-    # Does 'gh' have a command for this? 'gh copilot'? 
-    # Currently 'gh' might not support 'assign copilot' directly via public CLI command easily unless we use the endpoint.
-    # The MCP tool uses an API endpoint. 
-    # "https://api.github.com/repos/{owner}/{repo}/issues/{issue_number}/copilot_assignment" (Hypothetical or Beta)
-    # Actually, the MCP tool documentation says: "Assign Copilot to a specific issue...".
-    # Since I cannot easily replicate the MCP tool's internal API call without knowing the exact endpoint,
-    # AND this script must run standalone in GitHub Actions, 
-    # I should check if I can trigger it via a label that the *Systems* pick up, 
-    # OR if I should assume the user is running this script *via* the MCP environment (me).
-    
-    # BUT the user wants this to be robust and automated (nightly).
-    # If I can't call it via standard GH API, I can't automate it in the script easily.
-    
-    # Re-evaluating: The MCP tool `assign_copilot_to_issue` is available to ME, the agent.
-    # But the script `project_gardener.py` runs on the server.
-    # If standard GH API doesn't support it yet, I can't put it in the script.
+    # We will use `gh issue edit` to manage the state via labels.
     
     # Workaround: 
     # I will simply ADD a specific label "copilot:assigned" using `gh issue edit`.
     # GitHub Copilot Workspace often listens for specific triggers or UI interactions.
-    # If there is no public API, I will log a message.
-    
-    # Wait, if I am "Antigravity", I can write the code to utilize the `gh` cli if there is an extension.
-    # `gh extension install github/gh-copilot` ?
     
     # Let's assume for now I will just swap the labels, 
     # and IF the user has the workspace trigger set up, it works.
-    # Or, I can try to use the `gh api` to hit the endpoint if I knew it.
-    
-    # Let's try to swap labels: remove 'ai-pending', add 'ai-assigned'.
-    # This at least manages the workflow state.
     
     cmd = ['gh', 'issue', 'edit', str(issue_number), '--repo', f"{owner}/{repo}", '--remove-label', 'ai-pending', '--add-label', 'ai-assigned']
     run_command(cmd)
