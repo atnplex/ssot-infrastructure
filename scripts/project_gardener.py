@@ -257,7 +257,15 @@ def main():
             else:
                 print(f"  [Warning] 'Done' status option not found for Status field.")
 
-        # 2. Auto-Progression: PR Open -> In Progress
+        # 2a. Auto-Progression: AI Assigned -> In Progress
+        if not status_updated_in_this_pass and not is_closed and 'ai-assigned' in labels and current_values.get('Status') != 'In Progress':
+             wip_option_id = status_options.get('In Progress')
+             if wip_option_id:
+                 print(f"  [Progression] Item is AI Assigned. Setting Status to 'In Progress'.")
+                 update_item_field(project_id, item_id, status_field['id'], wip_option_id)
+                 status_updated_in_this_pass = True
+
+        # 2b. Auto-Progression: PR Open -> In Progress
         if not status_updated_in_this_pass and not is_closed and content.get('__typename') == 'PullRequest' and current_values.get('Status') != 'In Progress':
             wip_option_id = status_options.get('In Progress')
             if wip_option_id:
