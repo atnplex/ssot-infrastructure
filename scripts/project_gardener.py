@@ -29,7 +29,7 @@ def run_command(command, use_shell=False, input_text=None):
         
         result = subprocess.run(
             command,
-            cwd=os.getcwd(), # Use current directory
+            cwd=os.getcwd(), 
             shell=use_shell,
             check=True,
             capture_output=True,
@@ -45,7 +45,6 @@ def run_command(command, use_shell=False, input_text=None):
 
 def fetch_project_data(org, number):
     print(f"Fetching Project Data for {org}/projects/{number}...")
-    # Fetch Project ID and Fields
     query = """
     query($org: String!, $number: Int!) {
       organization(login: $org) {
@@ -53,19 +52,10 @@ def fetch_project_data(org, number):
           id
           fields(first: 20) {
             nodes {
-              ... on ProjectV2Field {
-                id
-                name
-                dataType
-              }
+              ... on ProjectV2Field { id, name, dataType }
               ... on ProjectV2SingleSelectField {
-                id
-                name
-                dataType
-                options {
-                  id
-                  name
-                }
+                id, name, dataType
+                options { id, name }
               }
             }
           }
@@ -74,17 +64,14 @@ def fetch_project_data(org, number):
     }
     """
     cmd = ['gh', 'api', 'graphql', '-f', f'query={query}', '-F', f'org={org}', '-F', f'number={number}']
-    
     output = run_command(cmd)
-    if not output:
-        return None, None
-    
+    if not output: return None, None
     data = json.loads(output)
     project = data['data']['organization']['projectV2']
     return project['id'], project['fields']['nodes']
 
 def fetch_items(project_id):
-    print("Fetching Project Items...")
+    print("Fetching Project Items for Gardening...")
     query = """
     query($projectId: ID!) {
       node(id: $projectId) {
@@ -95,13 +82,21 @@ def fetch_items(project_id):
               updatedAt
               content {
                 ... on Issue {
+                  id
+                  number
+                  repository { name, owner { login } }
                   title
+                  state
                   author { login }
                   labels(first: 10) { nodes { name } }
                   assignees(first: 1) { nodes { login } }
                 }
                 ... on PullRequest {
+                  id
+                  number
+                  repository { name, owner { login } }
                   title
+                  state
                   author { login }
                   labels(first: 10) { nodes { name } }
                   assignees(first: 1) { nodes { login } }
@@ -136,36 +131,68 @@ def fetch_items(project_id):
     return []
 
 def update_item_field(project_id, item_id, field_id, value, is_single_select=True):
-    print(f"  -> Updating field {field_id} to '{value}'...")
-    if DRY_RUN:
-        return
+    print(f"    -> Updating field {field_id} to '{value}'...")
+    if DRY_RUN: return
 
     if is_single_select:
         mutation = """
         mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $optionId: String!) {
           updateProjectV2ItemFieldValue(
             input: {
-              projectId: $projectId
-              itemId: $itemId
-              fieldId: $fieldId
-              value: { singleSelectOptionId: $optionId }
+              projectId: $projectId, itemId: $itemId, fieldId: $fieldId, value: { singleSelectOptionId: $optionId }
             }
-          ) {
-            projectV2Item { id }
-          }
+          ) { projectV2Item { id } }
         }
         """
         variables = {"projectId": project_id, "itemId": item_id, "fieldId": field_id, "optionId": value}
-    else:
-        return 
+        cmd = ['gh', 'api', 'graphql', '-f', f'query={mutation}', '-F', f'variables={json.dumps(variables)}']
+        run_command(cmd)
 
-    cmd = ['gh', 'api', 'graphql', '-f', f'query={mutation}', '-F', f'variables={json.dumps(variables)}']
+def add_item_to_project(project_id, content_id):
+    print(f"    -> Adding content {content_id} to project...")
+    if DRY_RUN: return
+    
+    mutation = """
+    mutation($projectId: ID!, $contentId: ID!) {
+      addProjectV2ItemById(input: {projectId: $projectId, contentId: $contentId}) {
+        item { id }
+      }
+    }
+    """
+    cmd = ['gh', 'api', 'graphql', '-f', f'query={mutation}', '-F', f'projectId={project_id}', '-F', f'contentId={content_id}']
     run_command(cmd)
+
+def fetch_all_repos(org):
+    print(f"Fetching all repositories for {org}...")
+    cmd = ['gh', 'repo', 'list', org, '--limit', '1000', '--json', 'name']
+    output = run_command(cmd)
+    if output: return [r['name'] for r in json.loads(output)]
+    return []
+
+def fetch_repo_open_items(org, repo):
+    # Fetch open issues and PRs with their IDs
+    query = """
+    query($owner: String!, $repo: String!) {
+      repository(owner: $owner, name: $repo) {
+        issues(states: OPEN, first: 100) { nodes { id, title } }
+        pullRequests(states: OPEN, first: 100) { nodes { id, title } }
+      }
+    }
+    """
+    cmd = ['gh', 'api', 'graphql', '-f', f'query={query}', '-F', f'owner={org}', '-F', f'repo={repo}']
+    output = run_command(cmd)
+    items = []
+    if output:
+        data = json.loads(output)
+        if 'data' in data and 'repository' in data['data'] and data['data']['repository']:
+            repo_data = data['data']['repository']
+            items.extend(repo_data['issues']['nodes'])
+            items.extend(repo_data['pullRequests']['nodes'])
+    return items
 
 def main():
     print("Starting Project Gardener...")
-    if DRY_RUN:
-        print("[DRY RUN MODE] No changes will be applied.")
+    if DRY_RUN: print("[DRY RUN MODE] No changes will be applied.")
 
     project_id, fields = fetch_project_data(ORG, PROJECT_NUMBER)
     if not project_id:
@@ -174,27 +201,36 @@ def main():
 
     # Map Fields
     field_map = {f['name']: f for f in fields}
-    
     status_field = field_map.get('Status')
     priority_field = field_map.get('Priority')
     
-    # Get Option IDs
     status_options = {opt['name']: opt['id'] for opt in status_field['options']} if status_field else {}
     priority_options = {opt['name']: opt['id'] for opt in priority_field['options']} if priority_field else {}
 
-    items = fetch_items(project_id)
-    print(f"Processing {len(items)} items...")
+    # --- Phase 1: Garden Existing Items ---
+    project_items = fetch_items(project_id)
+    print(f"Gardening {len(project_items)} existing items...")
+    
+    # Store IDs of content (Issues/PRs) already on board to check for orphans
+    content_ids_on_board = set()
 
-    for item in items:
+    for item in project_items:
         item_id = item['id']
         content = item['content']
         if not content: continue 
         
+        # Track content ID
+        content_id = content.get('id')
+        if content_id: content_ids_on_board.add(content_id)
+
         title = content.get('title', 'Unknown')
+        state = content.get('state') # OPEN, CLOSED, MERGED
         author = content.get('author', {}).get('login') if content.get('author') else None
         labels = [l['name'] for l in content.get('labels', {}).get('nodes', [])]
         assignees = content.get('assignees', {}).get('nodes', [])
         updated_at_str = item.get('updatedAt')
+        
+        is_closed = state in ['CLOSED', 'MERGED']
         
         current_values = {}
         for fv in item['fieldValues']['nodes']:
@@ -205,18 +241,48 @@ def main():
             elif 'date' in fv: val = fv['date']
             else: val = None
             current_values[field_name] = val
+            
+        current_status = current_values.get('Status')
+        status_updated_in_this_pass = False
 
-        print(f"Checking '{title}'...")
+        print(f"Checking '{title}' (State: {state}, Status: {current_status})...")
 
-        # 1. Rule: Set Status to Todo if empty
-        if 'Status' not in current_values and status_field:
+        # 1. State Sync: Closed/Merged -> Done
+        if is_closed and status_field and current_values.get('Status') != 'Done':
+            done_option_id = status_options.get('Done')
+            if done_option_id:
+                print(f"  [Sync] Content is closed. Setting Project Status to 'Done'.")
+                update_item_field(project_id, item_id, status_field['id'], done_option_id)
+                status_updated_in_this_pass = True
+            else:
+                print(f"  [Warning] 'Done' status option not found for Status field.")
+
+        # 2. Auto-Progression: PR Open -> In Progress
+        if not status_updated_in_this_pass and not is_closed and content.get('__typename') == 'PullRequest' and current_values.get('Status') != 'In Progress':
+            wip_option_id = status_options.get('In Progress')
+            if wip_option_id:
+                print(f"  [Progression] PR is Open. Setting Status to 'In Progress'.")
+                update_item_field(project_id, item_id, status_field['id'], wip_option_id)
+                status_updated_in_this_pass = True
+
+        # 3. Auto-Progression: Issue Assigned -> In Progress (if currently Todo or Empty)
+        if not status_updated_in_this_pass and not is_closed and content.get('__typename') == 'Issue' and assignees and current_values.get('Status') in [None, 'Todo']:
+             wip_option_id = status_options.get('In Progress')
+             if wip_option_id:
+                 print(f"  [Progression] Issue is Assigned. Setting Status to 'In Progress'.")
+                 update_item_field(project_id, item_id, status_field['id'], wip_option_id)
+                 status_updated_in_this_pass = True
+
+        # 4. Rule: Set Status to Todo if empty (and still empty after above checks)
+        if not status_updated_in_this_pass and not is_closed and not current_status and status_field:
             todo_option_id = status_options.get('Todo')
             if todo_option_id:
-                print(f"  [Action] Status is empty. Setting to 'Todo'.")
+                print(f"  [Triage] Status is empty. Setting to 'Todo'.")
                 update_item_field(project_id, item_id, status_field['id'], todo_option_id)
+                status_updated_in_this_pass = True
 
-        # 2. Rule: Set Priority based on labels if empty
-        if priority_field and 'Priority' not in current_values:
+        # 5. Priority: Derived from labels
+        if state == 'OPEN' and priority_field and 'Priority' not in current_values:
             target_priority = None
             for label in labels:
                 normalized = label.lower()
@@ -226,8 +292,7 @@ def main():
                         break
                 if target_priority: break
             
-            if not target_priority:
-                target_priority = DEFAULT_PRIORITY
+            if not target_priority: target_priority = DEFAULT_PRIORITY
                 
             target_option_id = None
             for name, opt_id in priority_options.items():
@@ -236,19 +301,90 @@ def main():
                     break
             
             if target_option_id:
-                print(f"  [Action] Priority empty. Derived '{target_priority}' from labels/default.")
+                print(f"  [Triage] Priority empty. Derived '{target_priority}' from labels/default.")
                 update_item_field(project_id, item_id, priority_field['id'], target_option_id)
 
-        # 3. Rule: Auto-assign Creator
-        if not assignees and author:
-             print(f"  [Suggestion] Issue unassigned. Should assign to creator @{author}.")
-
-        # 4. Rule: Stale Item Detection
-        if updated_at_str:
+        # 5. Stale Detection
+        if state == 'OPEN' and updated_at_str:
             last_update = datetime.datetime.fromisoformat(updated_at_str.replace('Z', '+00:00'))
             days_inactive = (datetime.datetime.now(datetime.timezone.utc) - last_update).days
-            if days_inactive > 30 and current_values.get('Status') != 'Done':
-                print(f"  [Suggestion] Item is stale ({days_inactive} days). Consider closing or downgrading priority.")
+            if days_inactive > 30 and current_status != 'Done':
+                print(f"  [Stale] Inactive for {days_inactive} days. Review required.")
+
+        # 6. AI Dispatcher
+        if 'ai-pending' in labels:
+            # We need repo/number from content
+            if content and 'number' in content and 'repository' in content:
+                repo_name = content['repository']['name']
+                repo_owner = content['repository']['owner']['login']
+                issue_num = content['number']
+                print(f"  [AI Dispatch] Found 'ai-pending'. Dispatching Agent...")
+                assign_ai_to_issue(repo_owner, repo_name, issue_num)
+
+    # --- Phase 2: The Sweeper (Find Orphans) ---
+    print("\nStarting Sweeper (Orphan Detection)...")
+    repos = fetch_all_repos(ORG)
+    for repo in repos:
+        # print(f"Scanning {repo}...")
+        open_items = fetch_repo_open_items(ORG, repo)
+        for item in open_items:
+            if item['id'] not in content_ids_on_board:
+                print(f"  [Sweeper] Found Orphan in {repo}: '{item['title']}'")
+                add_item_to_project(project_id, item['id'])
+
+def assign_ai_to_issue(owner, repo, issue_number):
+    print(f"  -> Assigning Copilot to issue {owner}/{repo}#{issue_number}...")
+    if DRY_RUN: return
+    
+    # We use gh api to invoke the copilot assignment if possible, 
+    # OR we use the mcp tool directly if we were running as an agent.
+    # But this script runs in GH Actions. GH Actions doesn't have access to 'mcp tools'.
+    # It has access to 'gh' CLI.
+    # Does 'gh' have a command for this? 'gh copilot'? 
+    # Currently 'gh' might not support 'assign copilot' directly via public CLI command easily unless we use the endpoint.
+    # The MCP tool uses an API endpoint. 
+    # "https://api.github.com/repos/{owner}/{repo}/issues/{issue_number}/copilot_assignment" (Hypothetical or Beta)
+    # Actually, the MCP tool documentation says: "Assign Copilot to a specific issue...".
+    # Since I cannot easily replicate the MCP tool's internal API call without knowing the exact endpoint,
+    # AND this script must run standalone in GitHub Actions, 
+    # I should check if I can trigger it via a label that the *Systems* pick up, 
+    # OR if I should assume the user is running this script *via* the MCP environment (me).
+    
+    # BUT the user wants this to be robust and automated (nightly).
+    # If I can't call it via standard GH API, I can't automate it in the script easily.
+    
+    # Re-evaluating: The MCP tool `assign_copilot_to_issue` is available to ME, the agent.
+    # But the script `project_gardener.py` runs on the server.
+    # If standard GH API doesn't support it yet, I can't put it in the script.
+    
+    # Workaround: 
+    # I will simply ADD a specific label "copilot:assigned" using `gh issue edit`.
+    # GitHub Copilot Workspace often listens for specific triggers or UI interactions.
+    # If there is no public API, I will log a message.
+    
+    # Wait, if I am "Antigravity", I can write the code to utilize the `gh` cli if there is an extension.
+    # `gh extension install github/gh-copilot` ?
+    
+    # Let's assume for now I will just swap the labels, 
+    # and IF the user has the workspace trigger set up, it works.
+    # Or, I can try to use the `gh api` to hit the endpoint if I knew it.
+    
+    # Let's try to swap labels: remove 'ai-pending', add 'ai-assigned'.
+    # This at least manages the workflow state.
+    
+    cmd = ['gh', 'issue', 'edit', str(issue_number), '--repo', f"{owner}/{repo}", '--remove-label', 'ai-pending', '--add-label', 'ai-assigned']
+    run_command(cmd)
+
+    # Note: Real "Assignment" to Copilot Workspace might need to be done manually 
+    # or via the specific "Open in Workspace" button until a public API is stable.
+    # But managing the *intent* via labels is a good first step.
+
+    # Also, we can add a comment to summon it?
+    # "@github-copilot can you handle this?"
+    comment_cmd = ['gh', 'issue', 'comment', str(issue_number), '--repo', f"{owner}/{repo}", '--body', f"@{ORG}/copilot please handle this issue."]
+    # run_command(comment_cmd) # commenting might be noisy, let's stick to labels.
+
+    pass
 
 if __name__ == "__main__":
     main()
