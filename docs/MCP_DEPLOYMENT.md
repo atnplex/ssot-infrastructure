@@ -1,44 +1,117 @@
 # MCP Deployment Guide
 
-This guide defines how to deploy Model Context Protocol (MCP) servers in the `atnplex` ecosystem.
+This guide defines strict standards for deploying Model Context Protocol (MCP) servers in the `atnplex` ecosystem.
 
-## Deployment Options
+## 1. Decision Matrix
 
-### 1. Cloud Run (Preferred for Public/Scalable)
-For stateless python/node MCP servers.
--   **Repo**: `atnplex/mcp-<name>`
--   **Dockerfile**: Must expose port (e.g., 8080).
--   **Auth**: Use Google IAM or a light API Key middleware.
--   **Connection**: Agents connect via HTTPS URL.
+| Requirement | Recommended Target | Transport |
+| :--- | :--- | :--- |
+| **Stateless** (API wrapper, calculation, logic) | **Google Cloud Run** | Ref: SSE / HTTPS |
+| **Stateful** (Database, File System, Hardware) | **VPS / HomeLab** | Ref: Stdio (via SSH) or SSE (Tailscale) |
+| **Local Dev** (Testing) | **Local Docker** | Ref: Stdio |
 
-### 2. VPS / HomeLab (Preferred for heavy/stateful)
-For servers needing local hardware (GPU, Zigbee) or huge storage.
--   **Repo**: `atnplex/atn-bootstrap` (add service to compose).
--   **Network**: Exposed via Tailscale (recommended) or Cloudflared.
--   **Connection**:
-    -   **Tailscale**: Agents connect via `http://<tailscale-ip>:<port>`.
-    -   **SSH Tunnel**: Agents use `ssh -L` to forward port.
+---
 
-## Connecting Agents
+## 2. Option A: Cloud Run (Stateless)
 
-### Antigravity / Claude Desktop
-Update your `claude_desktop_config.json` or `mcp_config.json`:
+Use for lightweight servers.
+
+### 2.1 Standard Dockerfile
+All MCP servers must expose a port (default 8080) and run an SSE-compatible server (e.g., using `mcp-python-sdk`).
+
+```dockerfile
+FROM python:3.11-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install -r requirements.txt
+COPY . .
+# Must use an SSE adapter (e.g. starlette/fastapi)
+CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8080"]
+```
+
+### 2.2 Deployment
+Deploy via `infrastructure` scripts or manually:
+
+```bash
+gcloud run deploy mcp-myserver \
+  --source . \
+  --platform managed \
+  --region us-central1 \
+  --allow-unauthenticated # ONLY for public data. Use Auth for private.
+```
+
+### 2.3 Client Config (Claude Desktop)
+For public or simple auth servers:
 
 ```json
-{
-  "mcpServers": {
-    "my-server": {
-      "command": "docker",
-      "args": ["run", "-i", "--rm", "my-server-image"]
-    },
-    "remote-server": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-sse-client", "https://my-cloud-run-url.run.app/sse"]
-    }
+"mcpServers": {
+  "my-cloud-mcp": {
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-sse-client", "https://mcp-myserver-xyz.a.run.app/sse"]
   }
 }
 ```
 
-## Security
--   **Never** expose raw MCP ports to the public internet without Auth.
--   Use **Tailscale** for private mesh networking.
+---
+
+## 3. Option B: VPS / HomeLab (Stateful)
+
+Use for heavy workloads or private networks.
+
+### 3.1 Docker Compose (Standard atn-bootstrap)
+Add to your `docker-compose.yml` in `atn-bootstrap`:
+
+```yaml
+services:
+  mcp-filesystem:
+    image: mcp/filesystem:latest
+    environment:
+      - PERMITTED_DIRS=/data
+    volumes:
+      - /mnt/raid:/data
+    network_mode: service:tailscale # If using Tailscale sidecar
+```
+
+### 3.2 Connectivity Methods
+
+#### Method A: SSH Tunneling (Robust)
+Connects "stdio" over SSH. Requires SSH access to the host.
+
+1.  **Config**:
+    ```json
+    "mcpServers": {
+      "remote-fs": {
+        "command": "ssh",
+        "args": ["user@100.x.y.z", "docker", "run", "-i", "--rm", "-v", "/mnt:/data", "mcp/filesystem", "/data"]
+      }
+    }
+    ```
+    *Note: This runs the container ephemeral on connection.*
+
+#### Method B: Tailscale Direct (Simpler)
+If the container exposes a port on the Tailnet.
+
+1.  **Config**:
+    ```json
+    "mcpServers": {
+      "remote-db": {
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-sse-client", "http://100.x.y.z:8000/sse"]
+      }
+    }
+    ```
+
+---
+
+## 4. Troubleshooting
+
+-   **Logs**: `docker logs -f <container_id>`
+-   **Inspector**: Use `@modelcontextprotocol/inspector` to debug.
+
+```bash
+npx @modelcontextprotocol/inspector <command> <args>
+```
+
+4. **Security**:
+    -   NEVER expose an MCP server to the public internet (0.0.0.0) without Authentication.
+    -   Prefer SSH tunneling or Tailscale for all private tools.
