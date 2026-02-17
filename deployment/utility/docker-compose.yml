@@ -1,0 +1,115 @@
+# ATN Utility Instance — BWS + Vaultwarden + Caddy
+# Deploy: docker compose up -d
+# Location: ssot-infrastructure/deployment/utility/
+
+services:
+  # ── BWS Server (Secrets HTTP API) ──────────────────────────────────────
+  bws-server:
+    image: bitwarden/bws:latest
+    container_name: bws-server
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    env_file:
+      - .env
+    environment:
+      - BWS_PORT=5000
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: "0.25"
+    networks:
+      - utility-net
+
+  # ── Vaultwarden (Password Manager) ─────────────────────────────────────
+  vaultwarden:
+    image: vaultwarden/server:latest
+    container_name: vaultwarden
+    restart: unless-stopped
+    ports:
+      - "8222:80"
+      - "3012:3012"
+    volumes:
+      - vaultwarden-data:/data
+    env_file:
+      - .env
+    environment:
+      - SIGNUPS_ALLOWED=false
+      - INVITATIONS_ALLOWED=true
+      - WEBSOCKET_ENABLED=true
+      - SHOW_PASSWORD_HINT=false
+      - LOG_LEVEL=info
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:80/alive"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.25"
+    networks:
+      - utility-net
+
+  # ── Vaultwarden Backup ─────────────────────────────────────────────────
+  vaultwarden-backup:
+    image: bruceforce/vaultwarden-backup:latest
+    container_name: vaultwarden-backup
+    restart: unless-stopped
+    depends_on:
+      vaultwarden:
+        condition: service_healthy
+    volumes:
+      - vaultwarden-data:/data:ro
+      - vaultwarden-backups:/backups
+    environment:
+      - BACKUP_DIR=/backups
+      - CRON_TIME=0 */6 * * *
+      - TIMESTAMP=true
+      - DELETE_AFTER=30
+    networks:
+      - utility-net
+
+  # ── Caddy (Reverse Proxy + Auto TLS) ──────────────────────────────────
+  caddy:
+    image: caddy:2-alpine
+    container_name: caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    env_file:
+      - .env
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:80"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+          cpus: "0.1"
+    networks:
+      - utility-net
+
+volumes:
+  vaultwarden-data:
+  vaultwarden-backups:
+  caddy-data:
+  caddy-config:
+
+networks:
+  utility-net:
+    driver: bridge
