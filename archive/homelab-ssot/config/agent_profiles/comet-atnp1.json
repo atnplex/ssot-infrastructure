@@ -1,0 +1,9 @@
+{
+  "agent_id": "comet-atnp1",
+  "platform": "perplexity-pro",
+  "description": "Perplexity Pro Comet browser agent 1",
+  "enabled_workflows": ["research", "documentation-discovery"],
+  "mcp_profile": "research",
+  "auto_sync": true,
+  "sync_interval_seconds": 60
+}

@@ -1,0 +1,102 @@
+###############################################################################
+# Universal .gitignore
+# Purpose:
+#   - Exclude backups, caches, histories, and temp files from version control.
+#   - Keep repo clean and portable across Unraid, HAOS, Debian, Alpine, Ubuntu.
+#   - Ensure only curated configs/scripts are tracked.
+###############################################################################
+
+# --- Logs ---
+*.log
+*.log.*
+/logs/
+home-assistant.log
+OZW_Log.txt
+
+# --- Databases / runtime state ---
+*.db
+*.db-shm
+*.db-wal
+home-assistant_v2.db
+pyozw.sqlite
+
+# --- Secrets ---
+*.env
+secrets.yaml
+secrets.json
+
+# --- Backups / archives ---
+/github_local/
+/backups/
+*.tar.gz
+*.zip
+*.7z
+dotfiles_backup_*/
+*.bak
+*~
+*backup*
+
+# --- Python ---
+__pycache__/
+*.pyc
+.python_history
+venv/
+
+# --- Node / JS ---
+node_modules/
+*.npm-debug.log
+.node_repl_history
+
+# --- OS / editor files ---
+.DS_Store
+Thumbs.db
+.idea/
+*.swp
+*.swo
+*.tmp
+
+# --- Build artifacts ---
+dist/
+build/
+out/
+
+# --- Shell histories ---
+.bash_history
+.zsh_history
+.sqlite_history
+
+# --- System-specific dirs ---
+.cache/
+.local/
+.config/
+.ssh/
+.mozilla/
+.chromium/
+.config/google-chrome/
+
+# --- Unraid / HAOS specifics ---
+boot/
+config/plugins/
+core-ssh/
+
+.HA_VERSION
+__folder_structure-*.txt
+__yaml_files-*.txt
+
+# Home Assistant runtime and system files
+.ha_run.lock
+.storage/
+blueprints/
+custom_components/
+www/community/
+deps/
+
+###############################################################################
+# Notes:
+# - This file is maintained in homelab as the source of truth.
+# - Universal template repos should copy or reference this file.
+# - To retroactively apply ignores, run:
+#       git rm -r --cached .
+#       git add .
+#       git commit -m "Apply updated .gitignore rules"
+###############################################################################

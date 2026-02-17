@@ -1,0 +1,10 @@
+{
+  "agent_id": "ag-laptop",
+  "platform": "antigravity",
+  "description": "Primary Antigravity orchestrator running on Windows 11 laptop",
+  "enabled_workflows": ["homelab-consolidation", "code-eval", "mcp-setup"],
+  "mcp_profile": "core-dev",
+  "auto_sync": true,
+  "sync_interval_seconds": 60,
+  "notes": "Clean install — orchestration hub for all agent work"
+}

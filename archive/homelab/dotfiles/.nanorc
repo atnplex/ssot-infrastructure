@@ -1,0 +1,84 @@
+## ============================================================
+## File: ~/.nanorc
+## Date: 2025-11-11
+## Purpose: Clean, Linux-friendly Nano configuration for sysadmins
+##
+## Features & Functions:
+##   - Indentation: 2 spaces, tabs converted to spaces, autoindent
+##   - Wrapping: Softwrap enabled, line numbers disabled for copy safety
+##   - Search: Case-insensitive by default
+##   - File handling: Backup files (~), persistent search history, Unix LF endings
+##   - Interface: Mouse support, position indicator, smart Home key, smooth scrolling,
+##                constant cursor position, visible cursor during selection
+##
+## Why: Provides a safe, audit-friendly editing environment for Linux configs/logs
+##      without overriding Nano’s default keybindings. Keeps workflows predictable
+##      for sysadmins and contributors.
+##
+## ============================================================
+## Nano Cheat Sheet (Linux sysadmin–friendly defaults + tweaks)
+## ============================================================
+## Basic Editing
+##   Ctrl+O   Write file (save)
+##   Ctrl+X   Exit Nano
+##   Ctrl+K   Cut line/selection
+##   Ctrl+U   Paste (uncut)
+##   Ctrl+J   Justify paragraph
+##   Ctrl+T   Spell check (if available)
+
+## Navigation
+##   Ctrl+A   Move to beginning of line
+##   Ctrl+E   Move to end of line
+##   Ctrl+Y   Page up
+##   Ctrl+V   Page down
+##   Ctrl+_   Go to line number
+
+## Search / Replace
+##   Ctrl+W   Search (case-insensitive by default here)
+##   Ctrl+\   Search and replace
+
+## Copy/Paste Safe Workflow
+##   1. Move cursor to start of text you want to copy
+##   2. Press Ctrl+^   → set mark (begin selection)
+##   3. Move cursor to end of desired text
+##   4. Press Alt+6    → copy selection into cutbuffer
+##   5. Move cursor to paste location
+##   6. Press Ctrl+U   → paste (uncut)
+##
+## Notes:
+##   - Alt+6 copies without deleting (safe copy)
+##   - Ctrl+K cuts (removes text into cutbuffer)
+##   - Ctrl+U pastes whatever is in cutbuffer
+
+## Misc
+##   Ctrl+C   Show current cursor position
+##   Ctrl+G   Help (full keybinding list)
+
+## ============================================================
+## Nano Config (Linux defaults + QoL for sysadmins)
+## ============================================================
+
+## Indentation
+set tabsize 2        # Tabs are 2 spaces wide
+set tabstospaces     # Convert tabs to spaces
+set autoindent       # Preserve indent on new lines
+
+## Line numbers and wrapping
+# set linenumbers     # Disabled: avoids copying line numbers
+set softwrap         # Wrap long lines visually (no hard breaks)
+
+## Search
+unset casesensitive  # Searches are case-insensitive by default
+
+## File handling
+set backup           # Keep backup files (filename~)
+set historylog       # Save search/replace history between sessions
+set unix             # Save files with Unix line endings (LF only)
+
+## Interface tweaks
+set mouse            # Enable mouse support (click to move cursor)
+set indicator        # Show position indicator (line/column/percent)
+set smarthome        # Home key goes to first non-whitespace, then true beginning
+set smooth           # Smooth scrolling instead of jumpy
+set showcursor       # Keep cursor visible during selection
+set constantshow     # Always show cursor position in status bar

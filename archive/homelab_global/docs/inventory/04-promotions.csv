@@ -1,0 +1,7 @@
+timestamp_utc,source_repo_slug,source_relpath,promoted_to_relpath,category,notes
+20260118T083842Z,atnplex_cloudflared_unraid,candidates/.github/workflows/ci.yml,docs/reviews/_unreviewed/atnplex_cloudflared_unraid/workflow-baselines/.github/workflows/ci.yml,workflow,pin latest intake baseline
+20260118T083842Z,atnplex_cloudflared_unraid,candidates/.github/workflows/release.yml,docs/reviews/_unreviewed/atnplex_cloudflared_unraid/workflow-baselines/.github/workflows/release.yml,workflow,pin latest intake baseline
+20260118T085148Z,atnplex_cloudflared_unraid,candidates/src/etc/rc.d/rc.cloudflared,docs/reviews/_unreviewed/atnplex_cloudflared_unraid/script-baselines/src/etc/rc.d/rc.cloudflared,script,pin intake baseline
+20260118T085148Z,atnplex_cloudflared_unraid,candidates/src/usr/local/emhttp/plugins/cloudflared/scripts/cloudflaredctl,docs/reviews/_unreviewed/atnplex_cloudflared_unraid/script-baselines/src/usr/local/emhttp/plugins/cloudflared/scripts/cloudflaredctl,script,pin intake baseline
+20260118T085148Z,atnplex_cloudflared_unraid,candidates/src/usr/local/emhttp/plugins/cloudflared/scripts/cloudflared-watchdog.sh,docs/reviews/_unreviewed/atnplex_cloudflared_unraid/script-baselines/src/usr/local/emhttp/plugins/cloudflared/scripts/cloudflared-watchdog.sh,script,pin intake baseline
+20260118T085148Z,atnplex_cloudflared_unraid,candidates/build/build.py,docs/reviews/_unreviewed/atnplex_cloudflared_unraid/script-baselines/build/build.py,script,pin intake baseline (release workflow dependency)

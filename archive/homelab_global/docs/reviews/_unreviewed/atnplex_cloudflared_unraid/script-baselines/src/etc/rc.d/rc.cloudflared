@@ -1,0 +1,11 @@
+#!/bin/bash
+set -euo pipefail
+CTL="/usr/local/emhttp/plugins/cloudflared/scripts/cloudflaredctl"
+
+case "${1:-}" in
+  start)   exec "$CTL" start ;;
+  stop)    exec "$CTL" stop ;;
+  restart) exec "$CTL" restart ;;
+  status)  exec "$CTL" status ;;
+  *) echo "Usage: $0 {start|stop|restart|status}"; exit 1 ;;
+esac

@@ -1,0 +1,23 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+
+# Node / Python / misc
+node_modules/
+dist/
+build/
+.venv/
+venv/
+
+# Secrets (do not commit)
+.env
+.env.*
+secrets/
+private/
+**/*.key
+**/*.pem
+**/*.p12
+**/*.pfx
+**/*id_rsa*
+**/*id_ed25519*
+.run/
