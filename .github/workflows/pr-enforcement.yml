@@ -1,0 +1,40 @@
+name: PR Enforcement
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  enforce:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Validate PR
+        run: |
+          echo "✅ PR enforcement active"
+          echo "Branch: ${{ github.head_ref }} → ${{ github.base_ref }}"
+
+          # Check PR title format (conventional commits)
+          TITLE="${{ github.event.pull_request.title }}"
+          if echo "$TITLE" | grep -qE '^(feat|fix|docs|chore|refactor|test|ci|style|perf|build|revert)(\(.+\))?!?: .+'; then
+            echo "✅ PR title follows conventional commit format"
+          else
+            echo "⚠️ PR title should follow: type(scope): description"
+            echo "   Examples: feat: add X, fix(auth): resolve Y, docs: update Z"
+          fi
+
+      - name: Check for secrets
+        run: |
+          # Basic secret scan — block obvious credential leaks
+          if grep -rn --include='*.yml' --include='*.yaml' --include='*.json' --include='*.env' \
+            -E '(password|secret|token|api_key)\s*[:=]\s*["\x27]?[A-Za-z0-9+/=]{20,}' \
+            --exclude-dir=.git --exclude='*.example' . 2>/dev/null; then
+            echo "❌ Potential secrets detected in PR"
+            exit 1
+          fi
+          echo "✅ No secrets detected"
