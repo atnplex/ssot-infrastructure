@@ -26,7 +26,7 @@ all:
     account3:
       hosts:
         vps3:
-          ansible_host: 159.54.177.75 # Public IP — update to Tailscale 100.x.x.x after bootstrap
+          ansible_host: 100.92.198.102 # Tailscale IP
           node_role: redundancy
           compose_dir: /atn/ssot-infrastructure/deployment/account3
 
