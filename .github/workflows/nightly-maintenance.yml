@@ -1,0 +1,59 @@
+name: Nightly Maintenance
+
+on:
+  schedule:
+    - cron: "0 10 * * *" # 2 AM PST (10:00 UTC)
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  maintenance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Clean stale branches
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "🧹 Cleaning merged branches..."
+          STALE=$(git branch -r --merged origin/main | grep -v 'main' | grep -v 'HEAD' | sed 's/origin\///' || true)
+          if [ -n "$STALE" ]; then
+            for branch in $STALE; do
+              echo "  Deleting: $branch"
+              gh api -X DELETE "repos/${{ github.repository }}/git/refs/heads/$branch" 2>/dev/null || true
+            done
+            echo "✅ Cleaned $(echo "$STALE" | wc -l) stale branches"
+          else
+            echo "✅ No stale branches"
+          fi
+
+      - name: Verify Compose files
+        run: |
+          echo "🔍 Validating docker-compose files..."
+          for f in deployment/*/docker-compose.yml; do
+            if [ -f "$f" ]; then
+              # Basic YAML validation
+              python3 -c "import yaml; yaml.safe_load(open('$f'))" 2>/dev/null && \
+                echo "  ✅ $f" || \
+                echo "  ❌ $f — YAML parse error"
+            fi
+          done
+
+      - name: Check documentation freshness
+        run: |
+          echo "📄 Checking documentation..."
+          STALE_DOCS=0
+          for doc in docs/*.md; do
+            if [ -f "$doc" ]; then
+              DAYS_OLD=$(( ($(date +%s) - $(git log -1 --format=%ct -- "$doc")) / 86400 ))
+              if [ "$DAYS_OLD" -gt 90 ]; then
+                echo "  ⚠️ $doc — $DAYS_OLD days since last update"
+                STALE_DOCS=$((STALE_DOCS + 1))
+              fi
+            fi
+          done
+          echo "✅ Documentation check complete ($STALE_DOCS stale docs)"
