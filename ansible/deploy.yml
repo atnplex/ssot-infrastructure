@@ -1,0 +1,49 @@
+---
+# ATN Deploy Playbook — Deploy services to all OCI nodes
+# Usage: ansible-playbook -i inventory.yml deploy.yml
+# Scope: Pulls latest images, syncs configs, starts containers
+
+- name: Deploy ATN services to OCI nodes
+  hosts: account1:account2:account3
+  become: true
+  vars:
+    account_map:
+      vps1: account1
+      vps2: account2
+      vps3: account3
+  tasks:
+    - name: Ensure namespace directory exists
+      file:
+        path: "{{ namespace }}/ssot-infrastructure"
+        state: directory
+        owner: "{{ ansible_user }}"
+        mode: '0755'
+
+    - name: Clone or update ssot-infrastructure
+      git:
+        repo: https://github.com/atnplex/ssot-infrastructure.git
+        dest: "{{ namespace }}/ssot-infrastructure"
+        version: main
+        force: true
+
+    - name: Pull latest images
+      command: docker compose pull
+      args:
+        chdir: "{{ compose_dir }}"
+
+    - name: Start services
+      command: docker compose up -d --remove-orphans
+      args:
+        chdir: "{{ compose_dir }}"
+
+    - name: Wait for containers to stabilize
+      pause:
+        seconds: 15
+
+    - name: List running containers
+      command: docker ps --format "{{ '{{' }}.Names{{ '}}' }}: {{ '{{' }}.Status{{ '}}' }}"
+      register: containers
+
+    - name: Report running services
+      debug:
+        msg: "{{ containers.stdout_lines }}"

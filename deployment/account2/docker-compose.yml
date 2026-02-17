@@ -1,0 +1,482 @@
+# ATN Account 2 — Redis Hub + HA Brain + Distributed Workers
+# Tailscale: 100.102.55.88 | ARM64 4C/24G | Always-on
+#
+# ROLE: Redis job queue (coordinates all distributed processing),
+#       active-active services (same as Account 1), dashboards,
+#       Immich ML worker, Paperless OCR worker.
+#
+# ACTIVE-ACTIVE: VW, Nextcloud, Immich, Paperless, Linkwarden
+#   all connect to Account 1 PostgreSQL primary over Tailscale.
+#   Redis here is the central job queue for distributed ML/OCR.
+#
+# ACCOUNT-SPECIFIC: Organizr, Headless Builder, BWS, Portainer, Ntfy.
+
+services:
+  # ════════════════════════════════════════════════════════════════════════
+  # NETWORKING
+  # ════════════════════════════════════════════════════════════════════════
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+          cpus: "0.1"
+    networks:
+      - atn-net
+
+  # CF tunnel connector 2 (same tunnel as Account 1)
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflared
+    restart: unless-stopped
+    command: tunnel run
+    environment:
+      - TUNNEL_TOKEN=${TUNNEL_TOKEN}
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+          cpus: "0.1"
+    networks:
+      - atn-net
+
+  # ════════════════════════════════════════════════════════════════════════
+  # SHARED INFRASTRUCTURE (Redis + PostgreSQL replica)
+  # ════════════════════════════════════════════════════════════════════════
+
+  # Central Redis — coordinates Immich ML, Paperless OCR job distribution
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+          cpus: "0.15"
+    networks:
+      - atn-net
+
+  # PostgreSQL read replica (streams from Account 1 primary)
+  postgres-replica:
+    image: tensorchord/pgvecto-rs:pg16-v0.2.1
+    container_name: postgres-replica
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-replica-data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_USER=atn
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - PGDATA=/var/lib/postgresql/data
+    command: >
+      bash -c "
+        if [ ! -f /var/lib/postgresql/data/standby.signal ]; then
+          rm -rf /var/lib/postgresql/data/*
+          PGPASSWORD=${POSTGRES_PASSWORD} pg_basebackup -h ${PG_PRIMARY_HOST:-100.67.88.109} -U atn -D /var/lib/postgresql/data -Fp -Xs -P -R
+        fi
+        exec postgres -c hot_standby=on
+      "
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.25"
+    networks:
+      - atn-net
+
+  # ════════════════════════════════════════════════════════════════════════
+  # ACTIVE-ACTIVE SERVICES (same as Account 1, using Account 1 PG primary)
+  # ════════════════════════════════════════════════════════════════════════
+
+  vaultwarden:
+    image: vaultwarden/server:latest
+    container_name: vaultwarden
+    restart: unless-stopped
+    ports:
+      - "8222:80"
+      - "3012:3012"
+    environment:
+      - DATABASE_URL=postgresql://atn:${POSTGRES_PASSWORD}@${PG_PRIMARY_HOST:-100.67.88.109}:5432/vaultwarden
+      - SIGNUPS_ALLOWED=false
+      - INVITATIONS_ALLOWED=true
+      - WEBSOCKET_ENABLED=true
+      - SHOW_PASSWORD_HINT=false
+    env_file:
+      - .env
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:80/alive"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.25"
+    networks:
+      - atn-net
+
+  nextcloud:
+    image: nextcloud:stable
+    container_name: nextcloud
+    restart: unless-stopped
+    ports:
+      - "8443:80"
+    volumes:
+      - nextcloud-data:/var/www/html
+    environment:
+      - POSTGRES_HOST=${PG_PRIMARY_HOST:-100.67.88.109}
+      - POSTGRES_DB=nextcloud
+      - POSTGRES_USER=atn
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - NEXTCLOUD_TRUSTED_DOMAINS=cloud.atnplex.cloud
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.5"
+    networks:
+      - atn-net
+
+  immich-server:
+    image: ghcr.io/immich-app/immich-server:release
+    container_name: immich-server
+    restart: unless-stopped
+    ports:
+      - "2283:2283"
+    volumes:
+      - immich-upload:/usr/src/app/upload
+    environment:
+      - DB_HOSTNAME=${PG_PRIMARY_HOST:-100.67.88.109}
+      - DB_USERNAME=atn
+      - DB_DATABASE_NAME=immich
+      - DB_PASSWORD=${POSTGRES_PASSWORD}
+      - REDIS_HOSTNAME=redis
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.5"
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - atn-net
+
+  # Immich ML worker (distributed — pulls jobs from local Redis)
+  immich-ml:
+    image: ghcr.io/immich-app/immich-machine-learning:release
+    container_name: immich-ml
+    restart: unless-stopped
+    volumes:
+      - immich-ml-cache:/cache
+      - immich-upload:/usr/src/app/upload:ro
+    environment:
+      - REDIS_HOSTNAME=redis
+    deploy:
+      resources:
+        limits:
+          memory: 3G
+          cpus: "1.5"
+    networks:
+      - atn-net
+
+  paperless:
+    image: ghcr.io/paperless-ngx/paperless-ngx:latest
+    container_name: paperless
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - paperless-data:/usr/src/paperless/data
+      - paperless-media:/usr/src/paperless/media
+      - paperless-consume:/usr/src/paperless/consume
+    environment:
+      - PAPERLESS_DBHOST=${PG_PRIMARY_HOST:-100.67.88.109}
+      - PAPERLESS_DBUSER=atn
+      - PAPERLESS_DBPASS=${POSTGRES_PASSWORD}
+      - PAPERLESS_DBNAME=paperless
+      - PAPERLESS_REDIS=redis://redis:6379
+      - PAPERLESS_OCR_LANGUAGE=eng
+      - PAPERLESS_TASK_WORKERS=2
+      - PAPERLESS_URL=https://docs.atnplex.cloud
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: "0.5"
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - atn-net
+
+  linkwarden:
+    image: ghcr.io/linkwarden/linkwarden:latest
+    container_name: linkwarden
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - DATABASE_URL=postgresql://atn:${POSTGRES_PASSWORD}@${PG_PRIMARY_HOST:-100.67.88.109}:5432/linkwarden
+      - NEXTAUTH_SECRET=${LINKWARDEN_SECRET}
+      - NEXTAUTH_URL=https://links.atnplex.cloud
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.2"
+    networks:
+      - atn-net
+
+  # ════════════════════════════════════════════════════════════════════════
+  # ACCOUNT-SPECIFIC SERVICES
+  # ════════════════════════════════════════════════════════════════════════
+
+  # AG Manager Proxy (fallback) — atnplex hardened fork v4.0.11
+  ag-proxy:
+    image: ghcr.io/atnplex/antigravity-manager:latest
+    container_name: ag-proxy
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:9045:8045"
+    environment:
+      - AM_LOCALHOST_ONLY=true
+      - AM_AUTO_UPDATE=false
+      - AM_RATE_LIMIT=100/min
+      - AM_CIRCUIT_BREAKER=enabled
+    env_file:
+      - .env
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: "0.15"
+    networks:
+      - atn-net
+
+  # Organizr — atnplex custom fork (AI chatbox, OIDC, diagnostics)
+  organizr:
+    image: ghcr.io/atnplex/organizr:latest
+    container_name: organizr
+    restart: unless-stopped
+    ports:
+      - "9080:80"
+    volumes:
+      - organizr-data:/config
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=America/Los_Angeles
+      - ORGANIZR_AI_ENABLED=true
+      - ORGANIZR_REDIS_HOST=redis:6379
+      - ORGANIZR_LITELLM_URL=http://litellm:4000
+    depends_on:
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.15"
+    networks:
+      - atn-net
+
+  headless-builder:
+    image: ghcr.io/atnplex/headless-builder:latest
+    container_name: headless-builder
+    restart: unless-stopped
+    ports:
+      - "9003:3000"
+      - "9008:8000"
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.5"
+    networks:
+      - atn-net
+
+  bws-server:
+    image: bitwarden/bws:latest
+    container_name: bws-server
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    env_file:
+      - .env
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: "0.15"
+    networks:
+      - atn-net
+
+  suggestarr:
+    image: ghcr.io/atnplex/suggestarr:latest
+    container_name: suggestarr
+    restart: unless-stopped
+    ports:
+      - "9005:5000"
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: "0.1"
+    networks:
+      - atn-net
+
+  mcp-memory:
+    image: mcp/memory:latest
+    container_name: mcp-memory
+    restart: unless-stopped
+    volumes:
+      - mcp-memory-data:/data
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: "0.1"
+    networks:
+      - atn-net
+
+  mcp-sequentialthinking:
+    image: mcp/sequentialthinking:latest
+    container_name: mcp-sequentialthinking
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: "0.1"
+    networks:
+      - atn-net
+
+  portainer:
+    image: portainer/portainer-ce:latest
+    container_name: portainer
+    restart: unless-stopped
+    ports:
+      - "9443:9443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer-data:/data
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: "0.1"
+    networks:
+      - atn-net
+
+  # LiteLLM (HA — Account 1 primary, Account 2 here, Account 3 fallback)
+  litellm:
+    image: ghcr.io/berriai/litellm:main-latest
+    container_name: litellm
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./litellm_config.yaml:/app/config.yaml:ro
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    env_file:
+      - .env
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.2"
+    networks:
+      - atn-net
+
+  ntfy:
+    image: binwiederhier/ntfy:latest
+    container_name: ntfy
+    restart: unless-stopped
+    ports:
+      - "2586:80"
+    command: serve
+    volumes:
+      - ntfy-data:/var/lib/ntfy
+    environment:
+      - TZ=America/Los_Angeles
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+          cpus: "0.05"
+    networks:
+      - atn-net
+
+  watchtower:
+    image: containrrr/watchtower:latest
+    container_name: watchtower
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - WATCHTOWER_CLEANUP=true
+      - WATCHTOWER_SCHEDULE=0 0 4 * * *
+      - TZ=America/Los_Angeles
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+          cpus: "0.05"
+
+volumes:
+  caddy-data:
+  caddy-config:
+  redis-data:
+  postgres-replica-data:
+  nextcloud-data:
+  immich-upload:
+  immich-ml-cache:
+  paperless-data:
+  paperless-media:
+  paperless-consume:
+  organizr-data:
+  mcp-memory-data:
+  portainer-data:
+  ntfy-data:
+
+networks:
+  atn-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

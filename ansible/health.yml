@@ -1,0 +1,48 @@
+---
+# ATN Health Check Playbook — Verify all nodes and services
+# Usage: ansible-playbook -i inventory.yml health.yml
+# Schedule via cron: */30 * * * * ansible-playbook -i inventory.yml health.yml
+
+- name: Health check all ATN nodes
+  hosts: all
+  become: true
+  ignore_unreachable: true
+  tasks:
+    - name: Ping node
+      ping:
+      register: ping_result
+      ignore_errors: true
+
+    - name: Check Docker daemon
+      command: docker info --format '{{ "{{" }}.ServerVersion{{ "}}" }}'
+      register: docker_status
+      ignore_errors: true
+      when: ping_result is succeeded
+
+    - name: List running containers
+      command: docker ps --format '{{ "{{" }}.Names{{ "}}" }}: {{ "{{" }}.Status{{ "}}" }}'
+      register: containers
+      ignore_errors: true
+      when: ping_result is succeeded
+
+    - name: Check disk usage
+      command: df -h / --output=pcent
+      register: disk_usage
+      ignore_errors: true
+      when: ping_result is succeeded
+
+    - name: Check memory usage
+      command: free -h
+      register: memory_usage
+      ignore_errors: true
+      when: ping_result is succeeded
+
+    - name: Report node status
+      debug:
+        msg: |
+          Node: {{ inventory_hostname }}
+          Reachable: {{ ping_result is succeeded }}
+          Docker: {{ docker_status.stdout | default('N/A') }}
+          Containers: {{ containers.stdout_lines | default([]) | length }}
+          Disk: {{ disk_usage.stdout_lines | default(['N/A']) | last | trim }}
+          Role: {{ node_role | default('unknown') }}

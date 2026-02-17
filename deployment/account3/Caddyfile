@@ -1,0 +1,36 @@
+# Account 3 Caddy — Workers + Failover + Active-Active routes
+# CF tunnel connector 3 serves the same domains as connectors 1+2
+
+# ── Account-specific ──
+
+# LiteLLM (active fallback)
+llm.atnplex.cloud {
+	reverse_proxy litellm:4000
+}
+
+# Uptime Kuma (secondary)
+status.atnplex.cloud {
+	reverse_proxy uptime-kuma:3001
+}
+
+# ── Active-Active (identical routes — CF tunnel distributes) ──
+
+vault.atnplex.cloud {
+	reverse_proxy vaultwarden:80
+}
+
+cloud.atnplex.cloud {
+	reverse_proxy nextcloud:80
+}
+
+photos.atnplex.cloud {
+	reverse_proxy immich-server:2283
+}
+
+docs.atnplex.cloud {
+	reverse_proxy paperless:8000
+}
+
+links.atnplex.cloud {
+	reverse_proxy linkwarden:3000
+}

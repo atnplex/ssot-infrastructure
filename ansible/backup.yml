@@ -1,0 +1,52 @@
+---
+# ATN Backup Playbook — Nightly Vaultwarden backup from Account 1 → Account 2
+# Usage: ansible-playbook -i inventory.yml backup.yml
+# Schedule via cron: 0 2 * * * ansible-playbook -i inventory.yml backup.yml
+
+- name: Backup Vaultwarden data to Account 2
+  hosts: oci-perf-1
+  become: true
+  vars:
+    backup_src: /var/lib/docker/volumes/utility_vaultwarden-data/_data
+    backup_dest_host: oci-perf-2
+    backup_dest_path: /var/lib/docker/volumes/backup_vaultwarden-backup/_data
+    backup_timestamp: "{{ ansible_date_time.iso8601_basic_short }}"
+  tasks:
+    - name: Create timestamped backup archive
+      archive:
+        path: "{{ backup_src }}"
+        dest: "/tmp/vaultwarden-{{ backup_timestamp }}.tar.gz"
+        format: gz
+
+    - name: Transfer backup to Account 2 via Tailscale
+      command: >
+        rsync -avz --progress
+        /tmp/vaultwarden-{{ backup_timestamp }}.tar.gz
+        {{ ansible_user }}@{{ hostvars[backup_dest_host].ansible_host }}:{{ backup_dest_path }}/
+      register: rsync_result
+
+    - name: Clean up local temp
+      file:
+        path: "/tmp/vaultwarden-{{ backup_timestamp }}.tar.gz"
+        state: absent
+
+    - name: Report backup status
+      debug:
+        msg: "Backup completed: vaultwarden-{{ backup_timestamp }}.tar.gz → {{ backup_dest_host }}"
+
+- name: Prune old backups on Account 2
+  hosts: oci-perf-2
+  become: true
+  tasks:
+    - name: Remove backups older than 30 days
+      find:
+        paths: /var/lib/docker/volumes/backup_vaultwarden-backup/_data
+        patterns: "vaultwarden-*.tar.gz"
+        age: 30d
+      register: old_backups
+
+    - name: Delete old backup files
+      file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ old_backups.files }}"

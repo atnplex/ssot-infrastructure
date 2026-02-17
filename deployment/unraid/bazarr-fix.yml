@@ -1,0 +1,95 @@
+# ATN Unraid — Media + Arr Stack + Multi-Bazarr
+# Tailscale: 100.76.168.116 | i5-10400 / 96GB | Always-on
+#
+# BAZARR SPLIT: 3 instances scoped by content type.
+# Staggered sync schedules prevent CPU contention.
+# Each instance handles ~33% of the library.
+
+services:
+  # ── Bazarr Movies (2am sync) ──────────────────────────────────────────
+  bazarr-movies:
+    image: lscr.io/linuxserver/bazarr:latest
+    container_name: bazarr-movies
+    restart: unless-stopped
+    ports:
+      - "6767:6767"
+    volumes:
+      - /mnt/appdata/bazarr-movies:/config
+      - /mnt/media/movies:/movies
+      - /mnt/media:/media
+    environment:
+      - TZ=America/Los_Angeles
+      - PUID=1000
+      - PGID=1000
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 2G
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:6767/api/system/health"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+    networks:
+      - atn-bridge
+
+  # ── Bazarr TV (3am sync) ──────────────────────────────────────────────
+  bazarr-tv:
+    image: lscr.io/linuxserver/bazarr:latest
+    container_name: bazarr-tv
+    restart: unless-stopped
+    ports:
+      - "6768:6767"
+    volumes:
+      - /mnt/appdata/bazarr-tv:/config
+      - /mnt/media/tv:/tv
+      - /mnt/media:/media
+    environment:
+      - TZ=America/Los_Angeles
+      - PUID=1000
+      - PGID=1000
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 2G
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:6767/api/system/health"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+    networks:
+      - atn-bridge
+
+  # ── Bazarr Anime (4am sync) ───────────────────────────────────────────
+  bazarr-anime:
+    image: lscr.io/linuxserver/bazarr:latest
+    container_name: bazarr-anime
+    restart: unless-stopped
+    ports:
+      - "6769:6767"
+    volumes:
+      - /mnt/appdata/bazarr-anime:/config
+      - /mnt/media/anime:/anime
+      - /mnt/media:/media
+    environment:
+      - TZ=America/Los_Angeles
+      - PUID=1000
+      - PGID=1000
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 2G
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:6767/api/system/health"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+    networks:
+      - atn-bridge
+
+networks:
+  atn-bridge:
+    driver: bridge
