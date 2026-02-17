@@ -1,0 +1,64 @@
+<?xml version="1.0"?>
+<PLUGIN name="cloudflared-unraid" author="atnplex" version="2025.11.1"
+        pluginURL="https://raw.githubusercontent.com/atnplex/cloudflared-unraid/main/plugin/cloudflared-unraid.plg">
+
+  <CHANGES>
+    <![CDATA[
+    2025.11.1:
+      - Initial release of the cloudflared-unraid plugin.
+      - Packages cloudflared binary version 2025.11.1 with rc scripts and WebUI.
+      - Sets up persistent configuration directory on the flash drive with secure permissions.
+      - Creates default settings.json and token file for first-time configuration.
+    ]]>
+  </CHANGES>
+
+  <!-- Install packaged payload (includes cloudflared binary + rc + WebUI) -->
+  <FILE Name="/tmp/cloudflared-unraid-2025.11.1.txz" Run="upgradepkg --install-new">
+    <URL>https://github.com/atnplex/cloudflared-unraid/releases/download/2025.11.1/cloudflared-unraid-2025.11.1-noarch-1.txz</URL>
+  </FILE>
+
+  <!-- Flash config initialization (token + settings) -->
+  <FILE Run="/bin/bash">
+    <INLINE>
+      <![CDATA[
+      CONFIG_DIR="/boot/config/plugins/cloudflared/config"
+      mkdir -p "$CONFIG_DIR"
+      chmod 0700 "$CONFIG_DIR"
+
+      if [ ! -f "$CONFIG_DIR/settings.json" ]; then
+        cat > "$CONFIG_DIR/settings.json" <<'EOFSET'
+{"meta":{"schema":1,"history_limit":5},"current":{"enabled":false,"logging_mode":"disabled","log_level":"info","log_persist_path":"","logrotate":{"enabled":false,"max_size_mb":5,"keep":3}},"history":[]}
+EOFSET
+        chmod 0600 "$CONFIG_DIR/settings.json"
+      fi
+
+      if [ ! -f "$CONFIG_DIR/token" ]; then
+        touch "$CONFIG_DIR/token"
+        chmod 0600 "$CONFIG_DIR/token"
+      fi
+      ]]>
+    </INLINE>
+  </FILE>
+
+  <!-- Uninstall script -->
+  <FILE Run="/bin/bash" Method="remove">
+    <INLINE>
+      <![CDATA[
+      # Stop cloudflared if running
+      if [ -f "/etc/rc.d/rc.cloudflared" ]; then
+        /etc/rc.d/rc.cloudflared stop 2>/dev/null || true
+      fi
+
+      # Remove package
+      removepkg cloudflared-unraid-2025.11.1-noarch-1 2>/dev/null || true
+
+      # Cleanup logs (keep config on flash for safety)
+      rm -rf /var/log/cloudflared
+
+      echo "Cloudflared plugin has been removed."
+      echo "Configuration preserved at: /boot/config/plugins/cloudflared/config"
+      ]]>
+    </INLINE>
+  </FILE>
+
+</PLUGIN>

@@ -1,0 +1,11 @@
+{
+  "meta": { "schema": 1, "history_limit": 5 },
+  "current": {
+    "enabled": false,
+    "logging_mode": "disabled",
+    "log_level": "info",
+    "log_persist_path": "",
+    "logrotate": { "enabled": false, "max_size_mb": 5, "keep": 3 }
+  },
+  "history": []
+}

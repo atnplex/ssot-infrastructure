@@ -1,0 +1,102 @@
+{
+  "$schema": "MCP Server Registry — Single Source of Truth for all agent MCP configurations",
+  "lastUpdated": "2026-02-15T07:00:00Z",
+  "mcpServers": {
+    "github-mcp-server": {
+      "command": "docker",
+      "args": ["run", "-i", "--rm", "-e", "GITHUB_PERSONAL_ACCESS_TOKEN", "ghcr.io/github/github-mcp-server"],
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}"
+      },
+      "meta": {
+        "status": "active",
+        "impact": "high",
+        "hosting": "local-stdio",
+        "domain": ["code", "git", "repos", "issues", "prs"],
+        "profileTags": ["core-dev", "infra-admin", "research"]
+      }
+    },
+    "perplexity-ask": {
+      "command": "npx",
+      "args": ["-y", "server-perplexity-ask"],
+      "env": {
+        "PERPLEXITY_API_KEY": "${PERPLEXITY_API_KEY}"
+      },
+      "meta": {
+        "status": "active",
+        "impact": "high",
+        "hosting": "local-stdio",
+        "domain": ["research", "web-search", "documentation"],
+        "profileTags": ["core-dev", "research"]
+      }
+    },
+    "sequential-thinking": {
+      "command": "npx",
+      "args": ["-y", "@anthropic-ai/sequential-thinking-mcp"],
+      "meta": {
+        "status": "active",
+        "impact": "high",
+        "hosting": "local-stdio",
+        "domain": ["reasoning", "planning", "analysis"],
+        "profileTags": ["core-dev", "research"]
+      }
+    },
+    "ssh-mcp-gateway": {
+      "remoteUrl": "https://mcp-ssh-gateway-821140081224.us-west1.run.app",
+      "localProxy": "C:/Antigravity/.agent-state/deploy/ssh_mcp_proxy.py",
+      "meta": {
+        "status": "active",
+        "impact": "high",
+        "hosting": "cloud-run",
+        "domain": ["ssh", "linux", "ubuntu", "debian", "remote-exec"],
+        "profileTags": ["infra-admin"],
+        "gcpProject": "atnplex-mcp-host",
+        "gcpRegion": "us-west1",
+        "serviceName": "mcp-ssh-gateway",
+        "revision": "mcp-ssh-gateway-00001-wr4",
+        "tools": ["ssh_exec", "ssh_upload", "ssh_download"],
+        "deployedAt": "2026-02-15T07:00:00Z"
+      }
+    },
+    "bitwarden-mcp": {
+      "remoteUrl": "PENDING_DEPLOYMENT",
+      "meta": {
+        "status": "planned",
+        "impact": "high",
+        "hosting": "cloud-run",
+        "domain": ["secrets", "credentials", "vault"],
+        "profileTags": ["infra-admin", "core-dev"],
+        "gcpProject": "atnplex-mcp-host",
+        "notes": "Official Bitwarden MCP server — deploy to Cloud Run"
+      }
+    },
+    "tailscale-mcp": {
+      "remoteUrl": "PENDING_DEPLOYMENT",
+      "meta": {
+        "status": "planned",
+        "impact": "high",
+        "hosting": "cloud-run",
+        "domain": ["networking", "vpn", "tailscale", "devices"],
+        "profileTags": ["infra-admin"],
+        "notes": "Tailscale MCP for device list, ACLs, routes — deploy to Cloud Run"
+      }
+    }
+  },
+  "profiles": {
+    "core-dev": {
+      "description": "Code evaluation, repo consolidation, research, and documentation",
+      "servers": ["github-mcp-server", "perplexity-ask", "sequential-thinking"],
+      "maxTools": 60
+    },
+    "infra-admin": {
+      "description": "Homelab, networking, secrets, and server management",
+      "servers": ["github-mcp-server", "ssh-mcp-gateway", "bitwarden-mcp", "tailscale-mcp"],
+      "maxTools": 60
+    },
+    "research": {
+      "description": "Best-practice research, documentation discovery, code review",
+      "servers": ["github-mcp-server", "perplexity-ask", "sequential-thinking"],
+      "maxTools": 40
+    }
+  }
+}

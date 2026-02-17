@@ -1,0 +1,10 @@
+plugin/dist/
+*.txz
+*.tgz
+*.log
+.DS_Store
+__pycache__/
+*.pyc
+build/cloudflared
+build/package/
+build/*.txz

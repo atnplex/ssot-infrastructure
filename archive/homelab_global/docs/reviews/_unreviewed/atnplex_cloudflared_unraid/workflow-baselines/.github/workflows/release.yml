@@ -1,0 +1,111 @@
+name: Build package + Release
+
+on:
+  schedule:
+    - cron: "0 6 1 * *"  # Runs at 06:00, on day 1 of the month
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      is_new_version: ${{ steps.compare.outputs.is_new_version }}
+      new_version: ${{ steps.fetch.outputs.version }}
+      download_url: ${{ steps.fetch.outputs.url }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Current cloudflaredVersion
+        id: cur
+        run: |
+          echo "version=$(jq -r .cloudflaredVersion plugin/cloudflared-unraid.json)" >> $GITHUB_OUTPUT
+
+      - name: Fetch latest cloudflared release (amd64)
+        id: fetch
+        run: |
+          LATEST_JSON=$(curl -s https://api.github.com/repos/cloudflare/cloudflared/releases/latest)
+          VERSION=$(echo "$LATEST_JSON" | jq -r .tag_name | sed "s/^v//")
+          URL=$(echo "$LATEST_JSON" | jq -r ".assets[] | select(.name==\"cloudflared-linux-amd64\") | .browser_download_url")
+          if [ -z "$URL" ]; then
+            echo "Error: download URL for cloudflared-linux-amd64 not found in latest release JSON" >&2
+            exit 1
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "url=$URL" >> $GITHUB_OUTPUT
+
+      - name: Compare versions
+        id: compare
+        run: |
+          if [ "${{ steps.cur.outputs.version }}" != "${{ steps.fetch.outputs.version }}" ]; then
+            echo "is_new_version=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_new_version=false" >> $GITHUB_OUTPUT
+          fi
+
+  release:
+    needs: check
+    if: needs.check.outputs.is_new_version == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - run: sudo apt-get update && sudo apt-get install -y jq xz-utils
+
+      - name: Download cloudflared + sha256
+        id: dl
+        run: |
+          curl -L "${{ needs.check.outputs.download_url }}" -o /tmp/cloudflared
+          sha256sum /tmp/cloudflared | awk '{print $1}' > /tmp/sha.txt
+          echo "sha256=$(cat /tmp/sha.txt)" >> $GITHUB_OUTPUT
+          
+          # Move downloaded binary to build directory so build.py doesn't re-download
+          mkdir -p build
+          mv /tmp/cloudflared build/cloudflared
+          chmod 755 build/cloudflared
+
+      - name: Update plugin metadata
+        run: |
+          V="${{ needs.check.outputs.new_version }}"
+          S="${{ steps.dl.outputs.sha256 }}"
+          jq --arg v "$V" --arg s "$S" \
+            ".version=\$v | .cloudflaredVersion=\$v | .cloudflaredSHA256=\$s" \
+            plugin/cloudflared-unraid.json > plugin/cloudflared-unraid.json.tmp
+          mv plugin/cloudflared-unraid.json.tmp plugin/cloudflared-unraid.json
+
+      - name: Build txz + generate plg
+        run: |
+          python3 build/build.py
+
+      - name: Commit + push generated artifacts
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add plugin/cloudflared-unraid.json plugin/cloudflared-unraid.plg
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "chore: bump cloudflared to ${{ needs.check.outputs.new_version }} (auto)"
+            git push
+          fi
+
+      - name: Create GitHub Release (assets)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "${{ needs.check.outputs.new_version }}"
+          name: "cloudflared ${{ needs.check.outputs.new_version }} (Unraid plugin)"
+          body: |
+            Automated build for cloudflared ${{ needs.check.outputs.new_version }}.
+            
+            **Installation:**
+            ```
+            plugin install https://raw.githubusercontent.com/${{ github.repository }}/main/plugin/cloudflared-unraid.plg
+            ```
+          files: |
+            plugin/cloudflared-unraid.plg
+            build/cloudflared-unraid-*-noarch-1.txz

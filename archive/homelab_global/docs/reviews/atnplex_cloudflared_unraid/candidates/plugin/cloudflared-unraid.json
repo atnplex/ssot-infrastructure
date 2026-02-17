@@ -1,0 +1,8 @@
+{
+  "version": "2025.11.1",
+  "cloudflaredVersion": "2025.11.1",
+  "cloudflaredSHA256": "991dffd8889ee9f0147b6b48933da9e4407e68ea8c6d984f55fa2d3db4bb431d",
+  "packageSHA256": "f912c89c9ad4468fed7127617b60501585a623969f9c634aa26cf0bdf93359e3",
+  "author": "atnplex",
+  "githubRepository": "atnplex/cloudflared-unraid"
+}

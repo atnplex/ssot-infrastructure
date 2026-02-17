@@ -1,0 +1,76 @@
+// ============================================================
+// File: .vscode/settings.json
+// Date: 2025-11-11
+// Purpose: General usage for homelab repo editing (Unraid)
+//
+// ============================================================
+// USER CONFIGURABLE SECTIONS (update after rebuild)
+// ------------------------------------------------------------
+// 1. Word Wrap Column:
+//    - Default = 100, adjust if you prefer narrower/wider wrap.
+// 2. Terminal Profiles:
+//    - Update paths if your shell binaries differ (/bin/bash, /bin/zsh).
+// 3. Optional Extensions:
+//    - Add schema validation or formatters for other file types
+//      (e.g., Docker Compose, JSON, Markdown).
+// ------------------------------------------------------------
+//
+// Features & Functions:
+//   - Word wrapping at 100 columns (bounded)
+//   - Tabs = 2 spaces, spaces inserted instead of tabs
+//   - Trim trailing whitespace on save
+//   - Insert final newline automatically
+//   - YAML: format on save with Red Hat YAML extension
+//   - Visual helpers (whitespace rendering, rulers)
+//   - Terminal profiles for reproducibility
+//
+// Why: Provides consistent, audit-friendly editing defaults
+//      across repo files for contributors and sysadmins.
+// ============================================================
+// VS Code Cheat Sheet (relevant defaults + tweaks)
+//   Ctrl+S         Save file
+//   Ctrl+K         Trim trailing whitespace (auto on save here)
+//   Alt+Z          Toggle word wrap
+//   Ctrl+Shift+I   Format document (YAML auto on save)
+//
+// Safe Editing Workflow:
+//   1. Edit file with consistent spacing (2 spaces)
+//   2. Save → trailing whitespace trimmed, final newline added
+//   3. YAML files auto-formatted on save
+//   4. Commit knowing files are clean and consistent
+// ============================================================
+
+{
+  // --- Editor Defaults ---
+  "editor.wordWrap": "bounded",
+  "editor.wordWrapColumn": 100,
+  "editor.insertSpaces": true,
+  "editor.tabSize": 2,
+  "editor.autoIndent": "full",
+  "files.trimTrailingWhitespace": true,
+  "files.insertFinalNewline": true,
+  "files.eol": "\n",
+
+  // --- YAML Formatting ---
+  "[yaml]": {
+    "editor.formatOnSave": true,
+    "editor.defaultFormatter": "redhat.vscode-yaml"
+  },
+
+  // --- JSON Formatting (optional, general repo use) ---
+  "[json]": {
+    "editor.formatOnSave": true,
+    "editor.defaultFormatter": "vscode.json-language-features"
+  },
+
+  // --- Visual Helpers ---
+  "editor.renderWhitespace": "boundary",
+  "editor.rulers": [80, 100, 120],
+
+  // --- Terminal Defaults ---
+  "terminal.integrated.defaultProfile.linux": "bash",
+  "terminal.integrated.profiles": {
+    "bash": { "path": "/bin/bash" },
+    "zsh": { "path": "/bin/zsh" }
+  }
+}

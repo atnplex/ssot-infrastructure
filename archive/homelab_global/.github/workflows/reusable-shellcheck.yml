@@ -1,0 +1,36 @@
+name: Reusable ShellCheck
+
+on:
+  workflow_call:
+    inputs:
+      targets:
+        description: "Newline-separated list of files to ShellCheck"
+        required: true
+        type: string
+      flags:
+        description: "ShellCheck flags"
+        required: false
+        type: string
+        default: "-x"
+
+jobs:
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ShellCheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+
+      - name: ShellCheck targets
+        shell: bash
+        run: |
+          set -euo pipefail
+          flags="${{ inputs.flags }}"
+          while IFS= read -r f; do
+            [[ -z "$f" ]] && continue
+            [[ -f "$f" ]] || { echo "Missing file: $f" >&2; exit 1; }
+            shellcheck $flags "$f"
+          done <<< "${{ inputs.targets }}"

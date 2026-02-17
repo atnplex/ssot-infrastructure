@@ -1,0 +1,3 @@
+repo_full_name,visibility,is_fork,primary_language,category,keep_or_archive,target_owner,target_repo,action,notes
+# category examples: ssot, device, service, tool, docs, experiment, fork
+# action examples: migrate, merge_into_ssot, archive, delete, keep_as_is
