@@ -1,0 +1,12 @@
+# Bootstrap secrets — NEVER commit
+bootstrap/.bootstrap.env
+bootstrap/.cache/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# OS files
+.DS_Store
+Thumbs.db
