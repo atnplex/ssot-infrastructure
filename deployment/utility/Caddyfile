@@ -1,5 +1,5 @@
-# Caddy Reverse Proxy — OCI Account 1
-# Routes public domains to internal containers
+# Caddy Reverse Proxy for ATN Utility Instance
+# Routes: vault.atnplex.cloud → Vaultwarden, bws.atnplex.cloud → BWS
 
 vault.atnplex.cloud {
 	reverse_proxy vaultwarden:80
@@ -11,12 +11,4 @@ vault.atnplex.cloud:3012 {
 
 bws.atnplex.cloud {
 	reverse_proxy bws-server:5000
-}
-
-llm.atnplex.cloud {
-	reverse_proxy litellm:4000
-}
-
-status.atnplex.cloud {
-	reverse_proxy uptime-kuma:3001
 }
