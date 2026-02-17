@@ -1,0 +1,60 @@
+# Account 1 Caddy — Primary services
+# Active-active services are also routed from Accounts 2+3 via CF tunnel
+# Cloudflare distributes traffic across all 3 connectors
+
+# AG Manager Proxy
+ag.atnplex.cloud {
+	reverse_proxy ag-proxy:8045
+}
+
+# Jellyseerr (Account 1 only)
+requests.atnplex.cloud {
+	reverse_proxy jellyseerr:5055
+}
+
+# LiteLLM
+llm.atnplex.cloud {
+	reverse_proxy litellm:4000
+}
+
+# Uptime Kuma
+status.atnplex.cloud {
+	reverse_proxy uptime-kuma:3001
+}
+
+# Logarr (Account 1 only)
+logs.atnplex.cloud {
+	reverse_proxy logarr:80
+}
+
+# AdGuard (Account 1 only)
+dns.atnplex.cloud {
+	reverse_proxy adguard:3000
+}
+
+# Dozzle (Account 1 only)
+docker-logs.atnplex.cloud {
+	reverse_proxy dozzle:8080
+}
+
+# ── Active-Active (CF tunnel load-balances across all 3 accounts) ──
+
+vault.atnplex.cloud {
+	reverse_proxy vaultwarden:80
+}
+
+cloud.atnplex.cloud {
+	reverse_proxy nextcloud:80
+}
+
+photos.atnplex.cloud {
+	reverse_proxy immich-server:2283
+}
+
+docs.atnplex.cloud {
+	reverse_proxy paperless:8000
+}
+
+links.atnplex.cloud {
+	reverse_proxy linkwarden:3000
+}

@@ -1,0 +1,79 @@
+# ATN OCI Account 2 — Backup + MCP Services
+# Deploy: docker compose up -d
+# Target: OCI Performance Instance (ARM64, 4 CPU / 24GB RAM)
+
+services:
+  # ── Vaultwarden Cold Standby (restore-only) ────────────────────────────
+  # NOT running actively. Data synced nightly from Account 1.
+  # Start manually: docker compose up -d vaultwarden-standby
+  vaultwarden-standby:
+    image: vaultwarden/server:latest
+    container_name: vaultwarden-standby
+    profiles: ["failover"] # Only starts with --profile failover
+    ports:
+      - "8222:80"
+      - "3012:3012"
+    volumes:
+      - vaultwarden-backup:/data
+    environment:
+      - DOMAIN=https://vault.atnplex.cloud
+      - SIGNUPS_ALLOWED=false
+      - LOG_LEVEL=info
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.25"
+    networks:
+      - backup-net
+
+  # ── MCP Sequential Thinking ────────────────────────────────────────────
+  mcp-sequentialthinking:
+    image: mcp/sequentialthinking:latest
+    container_name: mcp-sequentialthinking
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: "0.1"
+    networks:
+      - backup-net
+
+  # ── MCP Memory ─────────────────────────────────────────────────────────
+  mcp-memory:
+    image: mcp/memory:latest
+    container_name: mcp-memory
+    restart: unless-stopped
+    volumes:
+      - mcp-memory-data:/data
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: "0.1"
+    networks:
+      - backup-net
+
+  # ── Health Check Endpoint ──────────────────────────────────────────────
+  healthcheck:
+    image: traefik/whoami:latest
+    container_name: healthcheck
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    deploy:
+      resources:
+        limits:
+          memory: 16M
+          cpus: "0.05"
+    networks:
+      - backup-net
+
+volumes:
+  vaultwarden-backup:
+  mcp-memory-data:
+
+networks:
+  backup-net:
+    driver: bridge

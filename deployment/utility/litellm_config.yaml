@@ -1,0 +1,89 @@
+# LiteLLM Proxy Configuration
+# Docs: https://docs.litellm.ai/docs/proxy/configs
+# Routes requests to 15+ Google Pro accounts + 3 Perplexity accounts
+# via round-robin rotation with automatic fallback.
+
+model_list:
+  # ── Gemini Models (rotate across Google accounts) ────────────────────
+  - model_name: gemini-2.5-flash
+    litellm_params:
+      model: gemini/gemini-2.5-flash-preview-05-20
+      api_key: os.environ/GEMINI_API_KEY_1
+  - model_name: gemini-2.5-flash
+    litellm_params:
+      model: gemini/gemini-2.5-flash-preview-05-20
+      api_key: os.environ/GEMINI_API_KEY_2
+  - model_name: gemini-2.5-flash
+    litellm_params:
+      model: gemini/gemini-2.5-flash-preview-05-20
+      api_key: os.environ/GEMINI_API_KEY_3
+
+  - model_name: gemini-3-flash
+    litellm_params:
+      model: gemini/gemini-3-flash
+      api_key: os.environ/GEMINI_API_KEY_1
+  - model_name: gemini-3-flash
+    litellm_params:
+      model: gemini/gemini-3-flash
+      api_key: os.environ/GEMINI_API_KEY_2
+  - model_name: gemini-3-flash
+    litellm_params:
+      model: gemini/gemini-3-flash
+      api_key: os.environ/GEMINI_API_KEY_3
+
+  - model_name: gemini-3-pro
+    litellm_params:
+      model: gemini/gemini-3-pro
+      api_key: os.environ/GEMINI_API_KEY_1
+  - model_name: gemini-3-pro
+    litellm_params:
+      model: gemini/gemini-3-pro
+      api_key: os.environ/GEMINI_API_KEY_2
+
+  # ── Claude Models (via Anthropic) ────────────────────────────────────
+  - model_name: claude-sonnet-4-5
+    litellm_params:
+      model: anthropic/claude-sonnet-4-5-20250514
+      api_key: os.environ/ANTHROPIC_API_KEY_1
+  - model_name: claude-sonnet-4-5
+    litellm_params:
+      model: anthropic/claude-sonnet-4-5-20250514
+      api_key: os.environ/ANTHROPIC_API_KEY_2
+
+  - model_name: claude-opus-4-6
+    litellm_params:
+      model: anthropic/claude-opus-4-6-20260210
+      api_key: os.environ/ANTHROPIC_API_KEY_1
+
+  # ── Perplexity Models ────────────────────────────────────────────────
+  - model_name: perplexity-sonar
+    litellm_params:
+      model: perplexity/sonar
+      api_key: os.environ/PERPLEXITY_API_KEY_1
+  - model_name: perplexity-sonar
+    litellm_params:
+      model: perplexity/sonar
+      api_key: os.environ/PERPLEXITY_API_KEY_2
+  - model_name: perplexity-sonar
+    litellm_params:
+      model: perplexity/sonar
+      api_key: os.environ/PERPLEXITY_API_KEY_3
+
+litellm_settings:
+  # Round-robin rotation across accounts with same model_name
+  routing_strategy: simple-shuffle
+  # Retry up to 3 times on rate limit / failure
+  num_retries: 3
+  # Cache responses for identical requests (saves quota)
+  cache: true
+  cache_params:
+    type: local
+    ttl: 300
+  # Request timeout
+  request_timeout: 120
+  # Rate limit per model
+  set_verbose: false
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+  database_url: null
