@@ -42,6 +42,11 @@ ag.atnplex.cloud {
 	reverse_proxy ag-proxy:8045
 }
 
+# LiteLLM (HA — same domain, CF tunnel distributes)
+ai.atnplex.cloud {
+	reverse_proxy litellm:4000
+}
+
 # ── Active-Active (identical routes — CF tunnel distributes) ──
 
 vault.atnplex.cloud {

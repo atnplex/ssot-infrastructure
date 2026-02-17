@@ -253,13 +253,18 @@ services:
   # ACCOUNT-SPECIFIC SERVICES
   # ════════════════════════════════════════════════════════════════════════
 
-  # AG Manager Proxy (Primary)
+  # AG Manager Proxy (Primary) — atnplex hardened fork v4.0.11
   ag-proxy:
-    image: ghcr.io/atnplex/ag-manager-proxy:latest
+    image: ghcr.io/atnplex/antigravity-manager:latest
     container_name: ag-proxy
     restart: unless-stopped
     ports:
-      - "9045:8045"
+      - "127.0.0.1:9045:8045"
+    environment:
+      - AM_LOCALHOST_ONLY=true
+      - AM_AUTO_UPDATE=false
+      - AM_RATE_LIMIT=100/min
+      - AM_CIRCUIT_BREAKER=enabled
     env_file:
       - .env
     deploy:

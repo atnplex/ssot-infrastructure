@@ -256,13 +256,18 @@ services:
   # ACCOUNT-SPECIFIC SERVICES
   # ════════════════════════════════════════════════════════════════════════
 
-  # AG Proxy (fallback — Account 1 is primary)
+  # AG Manager Proxy (fallback) — atnplex hardened fork v4.0.11
   ag-proxy:
-    image: ghcr.io/atnplex/ag-manager-proxy:latest
+    image: ghcr.io/atnplex/antigravity-manager:latest
     container_name: ag-proxy
     restart: unless-stopped
     ports:
-      - "9045:8045"
+      - "127.0.0.1:9045:8045"
+    environment:
+      - AM_LOCALHOST_ONLY=true
+      - AM_AUTO_UPDATE=false
+      - AM_RATE_LIMIT=100/min
+      - AM_CIRCUIT_BREAKER=enabled
     env_file:
       - .env
     deploy:
@@ -273,8 +278,9 @@ services:
     networks:
       - atn-net
 
+  # Organizr — atnplex custom fork (AI chatbox, OIDC, diagnostics)
   organizr:
-    image: organizr/organizr:latest
+    image: ghcr.io/atnplex/organizr:latest
     container_name: organizr
     restart: unless-stopped
     ports:
@@ -285,11 +291,17 @@ services:
       - PUID=1000
       - PGID=1000
       - TZ=America/Los_Angeles
+      - ORGANIZR_AI_ENABLED=true
+      - ORGANIZR_REDIS_HOST=redis:6379
+      - ORGANIZR_LITELLM_URL=http://litellm:4000
+    depends_on:
+      redis:
+        condition: service_healthy
     deploy:
       resources:
         limits:
-          memory: 128M
-          cpus: "0.1"
+          memory: 256M
+          cpus: "0.15"
     networks:
       - atn-net
 
@@ -383,6 +395,31 @@ services:
         limits:
           memory: 128M
           cpus: "0.1"
+    networks:
+      - atn-net
+
+  # LiteLLM (HA — Account 1 primary, Account 2 here, Account 3 fallback)
+  litellm:
+    image: ghcr.io/berriai/litellm:main-latest
+    container_name: litellm
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./litellm_config.yaml:/app/config.yaml:ro
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    env_file:
+      - .env
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.2"
     networks:
       - atn-net
 
