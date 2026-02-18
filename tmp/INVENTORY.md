@@ -118,9 +118,10 @@
   - Real-time quota monitoring
   - Automatic account rotation
   - OpenAI /v1/chat/completions endpoint
-  - Image generation (Imagen 3) support
-  - 4K vision model support
-  - Context compression
+  - Image generation passthrough (when supported by upstream provider)
+  - Vision model request passthrough (capabilities depend on upstream models)
+  - Basic prompt/context size management
+  - Note: Specific model capabilities (e.g., particular image/vision models or compression behavior) depend on configured Gemini/Claude accounts and are not guaranteed by this fork or image tag.
 - **Resources**: 128MB memory, 0.15 CPU
 
 #### Jellyseerr (Media Request Interface)
