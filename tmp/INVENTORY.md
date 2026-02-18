@@ -42,7 +42,7 @@
 - **Primary**: arm1 (vps1)
 - **Replicas**: arm2 (vps2), arm3 (vps3) — streaming, hot-standby enabled
 - **Databases**: atn, immich, vaultwarden, nextcloud, paperless, linkwarden
-- **Version**: 16 with pgvecto-rs (vector extension)
+- **Version**: 16 with pgvecto.rs (vector extension)
 - **HA Config**: WAL level=replica, max_wal_senders=5, max_replication_slots=3
 - **Resources**: 1GB memory, 0.5 CPU, persistent volumes
 
