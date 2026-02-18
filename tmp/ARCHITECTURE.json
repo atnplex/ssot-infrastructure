@@ -1,0 +1,248 @@
+{
+  "organization": "atnplex",
+  "architecture_type": "3-Account Active-Active with Shared Database",
+  "last_updated": "2026-02-17",
+  "description": "Consolidated resource and architecture map for atnplex infrastructure. Use this alongside INVENTORY.md for comprehensive understanding of topology, services, and resource allocation.",
+  
+  "ascii_diagram": {
+    "system_overview": [
+      "┌─────────────────────────────────────────────────────────────────────┐",
+      "│                    Public Internet (HTTPS)                           │",
+      "│                              ↓                                       │",
+      "├─────────────────────────────────────────────────────────────────────┤",
+      "│           Cloudflare Tunnel (atnplex.cloud)                         │",
+      "│   ↓                    ↓                    ↓                        │",
+      "├──────────────────┬──────────────────┬──────────────────┤",
+      "│ Connector (acct1)│ Connector (acct2)│ Connector (acct3)│",
+      "└──────────┬───────┴──────────┬───────┴──────────┬───────┘",
+      "           ↓                  ↓                  ↓",
+      "   ┌──────────────┐   ┌──────────────┐   ┌──────────────┐",
+      "   │   Account 1  │   │   Account 2  │   │   Account 3  │",
+      "   │  (vps1)      │   │  (vps2)      │   │  (vps3)      │",
+      "   │ arm1 4C/24GB │   │ arm2 4C/24GB │   │ arm3 4C/24GB │",
+      "   │ amd1 1C/1GB  │   │ amd2 1C/1GB  │   │ amd3 1C/1GB  │",
+      "   └──────┬───────┘   └──────┬───────┘   └──────┬───────┘",
+      "           │                  │                  │",
+      "    Services Tier 1:          │             Services Tier 1:",
+      "    - Vaultwarden       Redis Queue (100.102.55.88)  - Vaultwarden",
+      "    - Nextcloud         (Job Coordinator)           - Nextcloud",
+      "    - Immich Server            │                    - Immich Server",
+      "    - Immich ML (3GB/1.5C)      │                    - Immich ML",
+      "    - Paperless NGX             │                    - Paperless NGX",
+      "    - Linkwarden               │                    - Linkwarden",
+      "    - Caddy (ingress)          │                    - Caddy (ingress)",
+      "    - Cloudflared              │                    - Cloudflared",
+      "                                ↓",
+      "                       PostgreSQL Primary (arm1)",
+      "                         (database/atn/immich/",
+      "                          vaultwarden/nextcloud/",
+      "                          paperless/linkwarden)",
+      "                                ↑",
+      "                  ┌─────────────┴─────────────┐",
+      "                  ↓                           ↓",
+      "         Replica (arm2)                Replica (arm3)",
+      "     (streaming, hot-standby)     (streaming, hot-standby)",
+      "",
+      "    Account1-Specific Services:",
+      "    - Antigravity Manager (AI gateway)",
+      "    - Jellyseerr (media requests)",
+      "    - LiteLLM (model routing)",
+      "    - Monitoring: Uptime Kuma, AdGuard, Logarr"
+    ]
+  },
+
+  "cloud_infrastructure": {
+    "provider": "Oracle Cloud Infrastructure (OCI)",
+    "accounts": [
+      {
+        "name": "vps1",
+        "region": "Always Free Tier",
+        "instances": [
+          {
+            "name": "arm1",
+            "shape": "Ampere A1 (Always Free Eligible)",
+            "vcpus": 4,
+            "memory_gb": 24,
+            "architecture": "ARM64",
+            "storage_root_gb": 150,
+            "storage_extra_gb": 50,
+            "role": "PostgreSQL Primary + Services"
+          },
+          {
+            "name": "amd1",
+            "shape": "VM.Standard.E2.1.Micro (Always Free)",
+            "vcpus": 1,
+            "memory_gb": 1,
+            "architecture": "AMD x86-64",
+            "role": "Utility / Monitoring"
+          }
+        ]
+      },
+      {
+        "name": "vps2",
+        "region": "Always Free Tier",
+        "instances": [
+          {
+            "name": "arm2",
+            "vcpus": 4,
+            "memory_gb": 24,
+            "architecture": "ARM64",
+            "role": "PostgreSQL Replica + Services + Redis (100.102.55.88)"
+          },
+          {
+            "name": "amd2",
+            "vcpus": 1,
+            "memory_gb": 1,
+            "architecture": "AMD x86-64",
+            "role": "Utility"
+          }
+        ]
+      },
+      {
+        "name": "vps3",
+        "region": "Always Free Tier",
+        "instances": [
+          {
+            "name": "arm3",
+            "vcpus": 4,
+            "memory_gb": 24,
+            "architecture": "ARM64",
+            "role": "PostgreSQL Replica + Services"
+          },
+          {
+            "name": "amd3",
+            "vcpus": 1,
+            "memory_gb": 1,
+            "architecture": "AMD x86-64",
+            "role": "Utility"
+          }
+        ]
+      }
+    ]
+  },
+
+  "networking": {
+    "vcn_configuration": [
+      {
+        "account": "vps1",
+        "vcn_cidr": "10.1.0.0/16",
+        "public_subnet": "10.1.1.0/24",
+        "private_subnet": "10.1.2.0/24"
+      },
+      {
+        "account": "vps2",
+        "vcn_cidr": "10.2.0.0/16",
+        "public_subnet": "10.2.1.0/24",
+        "private_subnet": "10.2.2.0/24"
+      },
+      {
+        "account": "vps3",
+        "vcn_cidr": "10.3.0.0/16",
+        "public_subnet": "10.3.1.0/24",
+        "private_subnet": "10.3.2.0/24"
+      }
+    ],
+    "docker_networks": [
+      "172.17.0.0/16 (account1)",
+      "172.18.0.0/16 (account2)",
+      "172.19.0.0/16 (account3)"
+    ],
+    "overlay_networking": {
+      "tailscale": {
+        "enabled": true,
+        "mesh_type": "full mesh",
+        "nodes": ["arm1", "arm2", "arm3", "homelab (Torrance)"],
+        "redis_ip": "100.102.55.88"
+      },
+      "cloudflare": {
+        "tunnel_count": 1,
+        "connectors": 3,
+        "architecture": "High Availability across accounts"
+      }
+    }
+  },
+
+  "data_layer": {
+    "postgresql": {
+      "primary": "arm1 (vps1)",
+      "replicas": ["arm2 (vps2) - streaming", "arm3 (vps3) - streaming"],
+      "version": "16 with pgvecto-rs",
+      "databases": ["atn", "immich", "vaultwarden", "nextcloud", "paperless", "linkwarden"],
+      "high_availability": {
+        "wal_level": "replica",
+        "max_wal_senders": 5,
+        "max_replication_slots": 3,
+        "hot_standby": true
+      }
+    },
+    "redis": {
+      "location": "arm2 (vps2)",
+      "tailscale_ip": "100.102.55.88",
+      "use_cases": ["Immich ML job queue", "Paperless OCR tasks", "Celery coordination"]
+    }
+  },
+
+  "service_tiers": {
+    "tier_1_shared": {
+      "deployment": "All 3 accounts (active-active)",
+      "services": ["vaultwarden", "nextcloud", "immich", "paperless-ngx", "linkwarden"],
+      "scaling": "Load-balanced via Cloudflare Tunnel"
+    },
+    "tier_2_account_specific": {
+      "deployment": "Account1 only",
+      "services": ["antigravity-manager", "jellyseerr", "litellm"]
+    },
+    "tier_3_monitoring": {
+      "deployment": "Account1 only",
+      "services": ["uptime-kuma", "adguard-home", "logarr"]
+    },
+    "tier_4_ingress": {
+      "deployment": "All 3 accounts",
+      "services": ["caddy", "cloudflared", "watchtower", "dozzle"]
+    }
+  },
+
+  "subscriptions_and_api_access": {
+    "perplexity": "3+ Pro accounts",
+    "google_gemini": "Multi-account with quota monitoring",
+    "anthropic_claude": "Multi-account via antigravity-manager",
+    "google_cloud": "Available for integrations",
+    "image_generation": "Imagen 3 (via Gemini → OpenAI API)"
+  },
+
+  "design_principles": [
+    "Always-Free Tier Focused: All OCI instances within Always Free quotas",
+    "Active-Active Pattern: Stateless services replicated across 3 accounts",
+    "GitOps-First: Infrastructure as Code (Terraform), version-controlled",
+    "Minimal Public Exposure: Cloudflare Tunnel only public entry point",
+    "Distributed Coordination: Shared PostgreSQL with streaming replicas + Redis",
+    "Automation-Heavy: Bootstrap scripts, MCP automation, CI/CD workflows"
+  ],
+
+  "key_metrics": {
+    "cloud_accounts": 3,
+    "performance_instances": 3,
+    "utility_instances": 3,
+    "database_replicas": 2,
+    "active_services": 10,
+    "cloudflare_connectors": 3,
+    "mcp_servers": 13,
+    "total_docker_containers": 55,
+    "tailscale_devices": 4,
+    "monitoring_tools": 3
+  },
+
+  "resource_allocation": {
+    "total_vcpus": 18,
+    "total_memory_gb": 78,
+    "total_storage_gb": 600,
+    "cost_model": "Always Free tier optimization"
+  },
+
+  "documentation_references": {
+    "inventory_file": "tmp/INVENTORY.md",
+    "infrastructure_repo": "https://github.com/atnplex/ssot-infrastructure",
+    "ai_coordination_repo": "https://github.com/atnplex/ssot-ai",
+    "deployment_examples": "https://github.com/atnplex/ssot-infrastructure/tree/main/deployment"
+  }
+}
