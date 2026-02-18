@@ -261,7 +261,7 @@
 | Performance Instances | 3 (arm1-3, 4C/24GB each) |
 | Utility Instances | 3 (amd1-3, 1C/1GB each) |
 | Database Replicas | 2 (streaming) |
-| Active Services | 5 (all 3 accounts) + 5 account-specific |
+| Active Services | 5 (all 3 accounts) + 3 account-specific = 8 total |
 | Cloudflare Connectors | 3 |
 | Tailscale Devices | 4+ (homelab + OCI) |
 | Total Docker Containers | 55+ (across 3 accounts) |
