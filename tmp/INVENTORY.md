@@ -26,7 +26,8 @@
 - VCN Subnets: 10.X.0.0/16 (X=1,2,3)
 - Public: 10.X.1.0/24
 - Private: 10.X.2.0/24
-- Docker Networks: 172.17-19.0.0/16
+- Docker Networks: 172.19.0.0/16, 172.20.0.0/16, 172.21.0.0/16
+
 
 **Storage**: 200GB per account (150GB for ARM instance boot volume, 50GB for AMD instance boot volume)  
 
