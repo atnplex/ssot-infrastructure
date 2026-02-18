@@ -137,7 +137,7 @@
 - **Model Mapping**:
   - gpt-4 → gemini-2.0-flash
   - gpt-4-vision → gemini-2.0-flash (4K vision)
-  - claude-3-5-sonnet → Gemini equivalent
+  - claude-3-5-sonnet → gemini-2.0-flash (routes Claude 3.5 Sonnet requests to Gemini 2.0 Flash)
 - **Resources**: 256MB memory, 0.2 CPU
 
 ### Tier 3: Monitoring & Utilities (Account1)
