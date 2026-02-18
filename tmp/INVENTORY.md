@@ -28,7 +28,8 @@
 - Private: 10.X.2.0/24
 - Docker Networks: 172.17-19.0.0/16
 
-**Storage**: 150GB root + 50GB additional per account  
+**Storage**: 200GB per account (150GB for ARM instance boot volume, 50GB for AMD instance boot volume)  
+
 **Replication**: Streaming PostgreSQL replicas on vps2 & vps3 from vps1 primary
 
 ---
